@@ -153,6 +153,8 @@ type Prometheus struct {
 	// Gatherer if these are not specified.
 	Registry *realprometheus.Registry
 
+	Registerer realprometheus.Registerer
+
 	// Gatherer is the prometheus gatherer to gather
 	// metrics with.
 	//
@@ -178,6 +180,7 @@ func NewPrometheus(subsystem string, skipper middleware.Skipper) *Prometheus {
 		Subsystem:   subsystem,
 		Skipper:     skipper,
 		Registry:    registry,
+		Registerer:  registry,
 		Gatherer:    registry,
 		RequestCounterURLLabelMappingFunc: func(c echo.Context) string {
 			return c.Path() // i.e. by default do nothing, i.e. return URL as is
@@ -364,7 +367,7 @@ func configureMetrics(reg realprometheus.Registerer, serviceName string) *promet
 }
 
 func (p *Prometheus) prometheusHandler() echo.HandlerFunc {
-	configureMetrics(p.Registry, p.Subsystem)
+	configureMetrics(p.Registerer, p.Subsystem)
 
 	h := promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
 
