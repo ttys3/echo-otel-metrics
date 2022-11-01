@@ -229,6 +229,7 @@ func (p *Prometheus) SetMetricsPath(e *echo.Echo) {
 
 func (p *Prometheus) runServer() {
 	if p.listenAddress != "" {
+		// nolint: errcheck
 		go p.router.Start(p.listenAddress)
 	}
 }
