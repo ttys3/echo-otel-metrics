@@ -1,15 +1,16 @@
 package main
 
 import (
-	"github.com/ttys3/echo-otel-metrics/otelmetric"
-	"go.opentelemetry.io/otel/attribute"
 	"math/rand"
 	"net/http"
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/ttys3/echo-otel-metrics/otelmetric"
 )
 
 var serviceName = "otelmetric-demo"
@@ -41,7 +42,6 @@ func main() {
 }
 
 func URLSkipper(c echo.Context) bool {
-
 	// skip /metrics
 	if c.Request().RequestURI == "/metrics" {
 		return true

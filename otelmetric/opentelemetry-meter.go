@@ -3,10 +3,13 @@ package otelmetric
 
 import (
 	"errors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"net/http"
+	"time"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric/global"
+	"go.opentelemetry.io/otel/metric/instrument"
 	"go.opentelemetry.io/otel/metric/instrument/syncfloat64"
 	"go.opentelemetry.io/otel/metric/instrument/syncint64"
 	"go.opentelemetry.io/otel/metric/unit"
@@ -16,22 +19,19 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 
-	realprometheus "github.com/prometheus/client_golang/prometheus"
-	"net/http"
-
-	"time"
-
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-
-	"go.opentelemetry.io/otel/metric/instrument"
+	realprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Meter can be a global/package variable.
 var meter = global.MeterProvider().Meter("echo")
 
-var defaultMetricPath = "/metrics"
-var defaultSubsystem = "echo"
+var (
+	defaultMetricPath = "/metrics"
+	defaultSubsystem  = "echo"
+)
 
 const (
 	_          = iota // ignore first value by assigning to blank identifier
@@ -61,7 +61,8 @@ var reqCnt = &Metric{
 	Description: "How many HTTP requests processed, partitioned by status code and HTTP method.",
 	Type:        "counter_vec",
 	Unit:        unit.Dimensionless,
-	Args:        []string{"code", "method", "host", "url"}}
+	Args:        []string{"code", "method", "host", "url"},
+}
 
 var reqDur = &Metric{
 	ID:          "reqDur",
@@ -70,7 +71,8 @@ var reqDur = &Metric{
 	Args:        []string{"code", "method", "url"},
 	Type:        "histogram_vec",
 	Unit:        unit.Milliseconds,
-	Buckets:     reqDurBuckets}
+	Buckets:     reqDurBuckets,
+}
 
 var resSz = &Metric{
 	ID:          "resSz",
@@ -79,7 +81,8 @@ var resSz = &Metric{
 	Args:        []string{"code", "method", "url"},
 	Type:        "histogram_vec",
 	Unit:        unit.Bytes,
-	Buckets:     resSzBuckets}
+	Buckets:     resSzBuckets,
+}
 
 var reqSz = &Metric{
 	ID:          "reqSz",
@@ -88,7 +91,8 @@ var reqSz = &Metric{
 	Args:        []string{"code", "method", "url"},
 	Type:        "histogram_vec",
 	Unit:        unit.Bytes,
-	Buckets:     reqSzBuckets}
+	Buckets:     reqSzBuckets,
+}
 
 var standardMetrics = []*Metric{
 	reqCnt,
@@ -378,7 +382,7 @@ func configureMetrics(reg realprometheus.Registerer, serviceName string) *promet
 		metric.WithResource(res),
 		// view see https://github.com/open-telemetry/opentelemetry-go/blob/v1.11.1/exporters/prometheus/exporter_test.go#L225
 		metric.WithReader(exporter, durationBucketsView, reqBytesBucketsView, rspBytesBucketsView, defaultView),
-		//metric.WithView(durationBucketsView, defaultView),
+		// metric.WithView(durationBucketsView, defaultView),
 	)
 
 	global.SetMeterProvider(provider)

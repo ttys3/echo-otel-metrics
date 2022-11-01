@@ -1,7 +1,9 @@
 package main
 
-import "go.opentelemetry.io/otel/metric/instrument"
-import "go.opentelemetry.io/otel/metric/global"
+import (
+	"go.opentelemetry.io/otel/metric/global"
+	"go.opentelemetry.io/otel/metric/instrument"
+)
 
 // Meter can be a global/package variable.
 var Meter = global.MeterProvider().Meter(serviceName)
