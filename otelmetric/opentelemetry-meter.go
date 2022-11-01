@@ -43,7 +43,7 @@ const (
 
 // reqDurBuckets is the buckets for request duration. Here, we use the prometheus defaults
 // which are for ~10s request length max: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
-var reqDurBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
+var reqDurBuckets = []float64{.005 * 1000, .01 * 1000, .025 * 1000, .05 * 1000, .1 * 1000, .25 * 1000, .5 * 1000, 1 * 1000, 2.5 * 1000, 5 * 1000, 10 * 1000}
 
 // reqSzBuckets is the buckets for request size. Here we define a spectrom from 1KB thru 1NB up to 10MB.
 var reqSzBuckets = []float64{1.0 * KB, 2.0 * KB, 5.0 * KB, 10.0 * KB, 100 * KB, 500 * KB, 1.0 * MB, 2.5 * MB, 5.0 * MB, 10.0 * MB}
@@ -65,7 +65,7 @@ var reqCnt = &Metric{
 
 var reqDur = &Metric{
 	ID:          "reqDur",
-	Name:        "request_duration_seconds",
+	Name:        "request_duration",
 	Description: "The HTTP request latencies in seconds.",
 	Args:        []string{"code", "method", "url"},
 	Type:        "histogram_vec",
@@ -74,7 +74,7 @@ var reqDur = &Metric{
 
 var resSz = &Metric{
 	ID:          "resSz",
-	Name:        "response_size_bytes",
+	Name:        "response_size",
 	Description: "The HTTP response sizes in bytes.",
 	Args:        []string{"code", "method", "url"},
 	Type:        "histogram_vec",
@@ -83,7 +83,7 @@ var resSz = &Metric{
 
 var reqSz = &Metric{
 	ID:          "reqSz",
-	Name:        "request_size_bytes",
+	Name:        "request_size",
 	Description: "The HTTP request sizes in bytes.",
 	Args:        []string{"code", "method", "url"},
 	Type:        "histogram_vec",
@@ -341,8 +341,8 @@ func configureMetrics(reg realprometheus.Registerer, serviceName string) *promet
 		panic(err)
 	}
 
-	customBucketsView, err := view.New(
-		view.MatchInstrumentName("*duration_seconds*"),
+	durationBucketsView, err := view.New(
+		view.MatchInstrumentName("*_duration"),
 		view.WithSetAggregation(aggregation.ExplicitBucketHistogram{
 			Boundaries: reqDurBuckets,
 		}),
@@ -351,10 +351,20 @@ func configureMetrics(reg realprometheus.Registerer, serviceName string) *promet
 		panic(err)
 	}
 
-	bytesBucketsView, err := view.New(
-		view.MatchInstrumentName("*size_bytes*"),
+	reqBytesBucketsView, err := view.New(
+		view.MatchInstrumentName("*request_size"),
 		view.WithSetAggregation(aggregation.ExplicitBucketHistogram{
 			Boundaries: reqSzBuckets,
+		}),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	rspBytesBucketsView, err := view.New(
+		view.MatchInstrumentName("*response_size"),
+		view.WithSetAggregation(aggregation.ExplicitBucketHistogram{
+			Boundaries: resSzBuckets,
 		}),
 	)
 	if err != nil {
@@ -368,8 +378,8 @@ func configureMetrics(reg realprometheus.Registerer, serviceName string) *promet
 	provider := metric.NewMeterProvider(
 		metric.WithResource(res),
 		// view see https://github.com/open-telemetry/opentelemetry-go/blob/v1.11.1/exporters/prometheus/exporter_test.go#L225
-		metric.WithReader(exporter, customBucketsView, bytesBucketsView, defaultView),
-		//metric.WithView(customBucketsView, defaultView),
+		metric.WithReader(exporter, durationBucketsView, reqBytesBucketsView, rspBytesBucketsView, defaultView),
+		//metric.WithView(durationBucketsView, defaultView),
 	)
 
 	global.SetMeterProvider(provider)
