@@ -3,19 +3,20 @@ package otelmetric
 
 import (
 	"errors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric/global"
 	"go.opentelemetry.io/otel/metric/instrument/syncfloat64"
 	"go.opentelemetry.io/otel/metric/instrument/syncint64"
 	"go.opentelemetry.io/otel/metric/unit"
-	"go.opentelemetry.io/otel/sdk/metric/aggregator/histogram"
-	controller "go.opentelemetry.io/otel/sdk/metric/controller/basic"
-	"go.opentelemetry.io/otel/sdk/metric/export/aggregation"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/aggregation"
+	"go.opentelemetry.io/otel/sdk/metric/view"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 
-	processor "go.opentelemetry.io/otel/sdk/metric/processor/basic"
+	realprometheus "github.com/prometheus/client_golang/prometheus"
 	"net/http"
 
 	"time"
@@ -147,6 +148,16 @@ type Prometheus struct {
 
 	// Context string to use as a prometheus URL label
 	URLLabelFromContext string
+
+	// Registry is the prometheus registry that will be used as the default Registerer and
+	// Gatherer if these are not specified.
+	Registry *realprometheus.Registry
+
+	// Gatherer is the prometheus gatherer to gather
+	// metrics with.
+	//
+	// If not specified the Registry will be used as default.
+	Gatherer realprometheus.Gatherer
 }
 
 // NewPrometheus generates a new set of metrics with a certain subsystem name
@@ -159,11 +170,15 @@ func NewPrometheus(subsystem string, skipper middleware.Skipper) *Prometheus {
 		subsystem = defaultSubsystem
 	}
 
+	registry := realprometheus.NewRegistry()
+
 	p := &Prometheus{
 		MetricsList: standardMetrics,
 		MetricsPath: defaultMetricPath,
 		Subsystem:   subsystem,
 		Skipper:     skipper,
+		Registry:    registry,
+		Gatherer:    registry,
 		RequestCounterURLLabelMappingFunc: func(c echo.Context) string {
 			return c.Path() // i.e. by default do nothing, i.e. return URL as is
 		},
@@ -310,44 +325,49 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-func configureMetrics(serviceName string) *prometheus.Exporter {
-	config := prometheus.Config{
-		DefaultHistogramBoundaries: reqDurBuckets,
-	}
-
+func configureMetrics(reg realprometheus.Registerer, serviceName string) *prometheus.Exporter {
 	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(semconv.ServiceNameKey.String(serviceName)))
 	if err != nil {
 		panic(err)
 	}
-
-	ctrl := controller.New(
-		processor.NewFactory(
-			// selector "go.opentelemetry.io/otel/sdk/metric/selector/simple"
-			// selector.NewWithHistogramDistribution(
-			// 	histogram.WithExplicitBoundaries(config.DefaultHistogramBoundaries),
-			// ),
-			// we need set different boundaries for different unit, so comes with our own selector
-			NewWithHistogramDistribution(
-				histogram.WithExplicitBoundaries(config.DefaultHistogramBoundaries),
-			),
-			aggregation.CumulativeTemporalitySelector(),
-			processor.WithMemory(true),
-		),
-		controller.WithResource(res),
+	exporter, err := prometheus.New(
+		prometheus.WithRegisterer(reg),
+		prometheus.WithAggregationSelector(CustomSelector),
 	)
-
-	exporter, err := prometheus.New(config, ctrl)
 	if err != nil {
 		panic(err)
 	}
 
-	global.SetMeterProvider(exporter.MeterProvider())
+	customBucketsView, err := view.New(
+		view.MatchInstrumentName("histogram_*"),
+		view.WithSetAggregation(aggregation.ExplicitBucketHistogram{
+			Boundaries: reqDurBuckets,
+		}),
+	)
+	if err != nil {
+		panic(err)
+	}
+	defaultView, err := view.New(view.MatchInstrumentName("*"))
+	if err != nil {
+		panic(err)
+	}
+	provider := metric.NewMeterProvider(
+		metric.WithResource(res),
+		// view see https://github.com/open-telemetry/opentelemetry-go/blob/v1.11.1/exporters/prometheus/exporter_test.go#L225
+		metric.WithReader(exporter, customBucketsView, defaultView),
+		//metric.WithView(customBucketsView, defaultView),
+	)
+
+	global.SetMeterProvider(provider)
 
 	return exporter
 }
 
 func (p *Prometheus) prometheusHandler() echo.HandlerFunc {
-	h := configureMetrics(p.Subsystem)
+	configureMetrics(p.Registry, p.Subsystem)
+
+	h := promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
+
 	return func(c echo.Context) error {
 		h.ServeHTTP(c.Response(), c.Request())
 		return nil
