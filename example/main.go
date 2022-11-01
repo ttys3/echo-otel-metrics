@@ -4,6 +4,7 @@ import (
 	"github.com/ttys3/echo-otel-metrics/otelmetric"
 	"go.opentelemetry.io/otel/attribute"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -27,7 +28,7 @@ func main() {
 		// Increment the counter.
 		demoCounter.Add(c.Request().Context(), 1, attribute.String("foo", "bar"))
 		demoCounter.Add(c.Request().Context(), 10, attribute.String("hello", "world"))
-		return c.String(http.StatusOK, "Hello, World!\n")
+		return c.String(http.StatusOK, strings.Repeat("Hello, World!\n", 512))
 	})
 
 	// Start server

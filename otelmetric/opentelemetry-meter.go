@@ -342,7 +342,7 @@ func configureMetrics(reg realprometheus.Registerer, serviceName string) *promet
 	}
 
 	customBucketsView, err := view.New(
-		view.MatchInstrumentName("histogram_*"),
+		view.MatchInstrumentName("*duration_seconds*"),
 		view.WithSetAggregation(aggregation.ExplicitBucketHistogram{
 			Boundaries: reqDurBuckets,
 		}),
@@ -350,6 +350,17 @@ func configureMetrics(reg realprometheus.Registerer, serviceName string) *promet
 	if err != nil {
 		panic(err)
 	}
+
+	bytesBucketsView, err := view.New(
+		view.MatchInstrumentName("*size_bytes*"),
+		view.WithSetAggregation(aggregation.ExplicitBucketHistogram{
+			Boundaries: reqSzBuckets,
+		}),
+	)
+	if err != nil {
+		panic(err)
+	}
+
 	defaultView, err := view.New(view.MatchInstrumentName("*"))
 	if err != nil {
 		panic(err)
@@ -357,7 +368,7 @@ func configureMetrics(reg realprometheus.Registerer, serviceName string) *promet
 	provider := metric.NewMeterProvider(
 		metric.WithResource(res),
 		// view see https://github.com/open-telemetry/opentelemetry-go/blob/v1.11.1/exporters/prometheus/exporter_test.go#L225
-		metric.WithReader(exporter, customBucketsView, defaultView),
+		metric.WithReader(exporter, customBucketsView, bytesBucketsView, defaultView),
 		//metric.WithView(customBucketsView, defaultView),
 	)
 
