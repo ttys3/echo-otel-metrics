@@ -335,7 +335,6 @@ func configureMetrics(reg realprometheus.Registerer, serviceName string) *promet
 	}
 	exporter, err := prometheus.New(
 		prometheus.WithRegisterer(reg),
-		prometheus.WithAggregationSelector(CustomSelector),
 	)
 	if err != nil {
 		panic(err)
