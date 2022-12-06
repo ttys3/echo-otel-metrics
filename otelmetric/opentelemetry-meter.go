@@ -15,7 +15,6 @@ import (
 	"go.opentelemetry.io/otel/metric/unit"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/aggregation"
-	"go.opentelemetry.io/otel/sdk/metric/view"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 
@@ -345,45 +344,37 @@ func configureMetrics(reg realprometheus.Registerer, serviceName string) *promet
 		panic(err)
 	}
 
-	durationBucketsView, err := view.New(
-		view.MatchInstrumentName("*_duration"),
-		view.WithSetAggregation(aggregation.ExplicitBucketHistogram{
+	durationBucketsView := metric.NewView(
+		metric.Instrument{Name: "*_duration"},
+		metric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
 			Boundaries: reqDurBuckets,
-		}),
+		}},
 	)
-	if err != nil {
-		panic(err)
-	}
 
-	reqBytesBucketsView, err := view.New(
-		view.MatchInstrumentName("*request_size"),
-		view.WithSetAggregation(aggregation.ExplicitBucketHistogram{
+	reqBytesBucketsView := metric.NewView(
+		metric.Instrument{Name: "*request_size"},
+		metric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
 			Boundaries: reqSzBuckets,
-		}),
+		}},
 	)
-	if err != nil {
-		panic(err)
-	}
 
-	rspBytesBucketsView, err := view.New(
-		view.MatchInstrumentName("*response_size"),
-		view.WithSetAggregation(aggregation.ExplicitBucketHistogram{
+	rspBytesBucketsView := metric.NewView(
+		metric.Instrument{Name: "*response_size"},
+		metric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
 			Boundaries: resSzBuckets,
-		}),
+		}},
 	)
-	if err != nil {
-		panic(err)
-	}
 
-	defaultView, err := view.New(view.MatchInstrumentName("*"))
-	if err != nil {
-		panic(err)
-	}
+	defaultView := metric.NewView(metric.Instrument{Name: "*"},
+		metric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
+			Boundaries: reqDurBuckets,
+		}})
+
 	provider := metric.NewMeterProvider(
 		metric.WithResource(res),
-		// view see https://github.com/open-telemetry/opentelemetry-go/blob/v1.11.1/exporters/prometheus/exporter_test.go#L225
-		metric.WithReader(exporter, durationBucketsView, reqBytesBucketsView, rspBytesBucketsView, defaultView),
-		// metric.WithView(durationBucketsView, defaultView),
+		// view see https://github.com/open-telemetry/opentelemetry-go/blob/v1.11.2/exporters/prometheus/exporter_test.go#L291
+		metric.WithReader(exporter),
+		metric.WithView(durationBucketsView, reqBytesBucketsView, rspBytesBucketsView, defaultView),
 	)
 
 	global.SetMeterProvider(provider)
