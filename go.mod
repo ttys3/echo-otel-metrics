@@ -6,7 +6,7 @@ require (
 	github.com/labstack/echo/v4 v4.9.1
 	github.com/prometheus/client_golang v1.14.0
 	go.opentelemetry.io/otel v1.11.2
-	go.opentelemetry.io/otel/exporters/prometheus v0.33.0
+	go.opentelemetry.io/otel/exporters/prometheus v0.34.0
 	go.opentelemetry.io/otel/metric v0.34.0
 	go.opentelemetry.io/otel/sdk v1.11.2
 	go.opentelemetry.io/otel/sdk/metric v0.34.0
