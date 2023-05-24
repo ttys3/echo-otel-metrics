@@ -157,7 +157,8 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 		//		"ms": "_milliseconds",
 		//	}
 		// disable this behaviour by using `prometheus.WithoutUnits()` option
-		metric.WithUnit(UnitDimensionless),
+		// or hack: do not set unit for counter to avoid the `_ratio` suffix
+		// metric.WithUnit(UnitDimensionless),
 		metric.WithDescription("How many HTTP requests processed, partitioned by status code and HTTP method."),
 	)
 
