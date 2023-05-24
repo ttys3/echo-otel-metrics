@@ -81,6 +81,7 @@ type Prometheus struct {
 	reqDur, reqSz, resSz metric.Float64Histogram
 	router               *echo.Echo
 	listenAddress        string
+	compatibleMode       bool // run as echo prometheus middleware compatible mode
 
 	MetricsPath string
 	Subsystem   string
@@ -103,7 +104,7 @@ type Prometheus struct {
 }
 
 // NewPrometheus generates a new set of metrics with a certain subsystem name
-func NewPrometheus(subsystem string, skipper middleware.Skipper) *Prometheus {
+func NewPrometheus(subsystem string, skipper middleware.Skipper, compatibleMode bool) *Prometheus {
 	if skipper == nil {
 		skipper = middleware.DefaultSkipper
 	}
@@ -115,12 +116,13 @@ func NewPrometheus(subsystem string, skipper middleware.Skipper) *Prometheus {
 	registry := realprometheus.NewRegistry()
 
 	p := &Prometheus{
-		MetricsPath: defaultMetricPath,
-		Subsystem:   subsystem,
-		Skipper:     skipper,
-		Registry:    registry,
-		Registerer:  registry,
-		Gatherer:    registry,
+		compatibleMode: compatibleMode,
+		MetricsPath:    defaultMetricPath,
+		Subsystem:      subsystem,
+		Skipper:        skipper,
+		Registry:       registry,
+		Registerer:     registry,
+		Gatherer:       registry,
 		RequestCounterURLLabelMappingFunc: func(c echo.Context) string {
 			// contains route path ala `/users/:id`
 			// as of Echo v4.10.1 path is empty for 404 cases (when router did not find any matching routes)
@@ -134,7 +136,10 @@ func NewPrometheus(subsystem string, skipper middleware.Skipper) *Prometheus {
 	var err error
 	// Standard default metrics
 	p.reqCnt, err = meter.Int64Counter(
-		subsystem+"."+"requests_total",
+		// the result name is `requests_total`
+		// https://github.com/open-telemetry/opentelemetry-go/blob/46f2ce5ca6adaa264c37cdbba251c9184a06ed7f/exporters/prometheus/exporter.go#L74
+		// the exporter will enforce the `_total` suffix for counter, so we do not need it here
+		"requests",
 		// see https://github.com/open-telemetry/opentelemetry-go/pull/3776
 		// The go.opentelemetry.io/otel/metric/unit package is deprecated. Use the equivalent unit string instead. (#3776)
 		// Use "1" instead of unit.Dimensionless
@@ -149,6 +154,7 @@ func NewPrometheus(subsystem string, skipper middleware.Skipper) *Prometheus {
 		//		"By": "_bytes",
 		//		"ms": "_milliseconds",
 		//	}
+		// disable this behaviour by using `prometheus.WithoutUnits()` option
 		metric.WithUnit(UnitDimensionless),
 		metric.WithDescription("How many HTTP requests processed, partitioned by status code and HTTP method."),
 	)
@@ -157,8 +163,12 @@ func NewPrometheus(subsystem string, skipper middleware.Skipper) *Prometheus {
 		panic(err)
 	}
 
+	reqDurName := "request_duration"
+	if p.compatibleMode {
+		reqDurName = "request_duration_seconds"
+	}
 	p.reqDur, err = meter.Float64Histogram(
-		subsystem+"."+"request_duration",
+		reqDurName,
 		metric.WithUnit(UnitMilliseconds),
 		metric.WithDescription("The HTTP request latencies in milliseconds."),
 	)
@@ -166,8 +176,12 @@ func NewPrometheus(subsystem string, skipper middleware.Skipper) *Prometheus {
 		panic(err)
 	}
 
+	resSzName := "response_size"
+	if p.compatibleMode {
+		resSzName = "response_size_bytes"
+	}
 	p.resSz, err = meter.Float64Histogram(
-		subsystem+"."+"response_size",
+		resSzName,
 		metric.WithUnit(UnitBytes),
 		metric.WithDescription("The HTTP response sizes in bytes."),
 	)
@@ -175,8 +189,12 @@ func NewPrometheus(subsystem string, skipper middleware.Skipper) *Prometheus {
 		panic(err)
 	}
 
+	reqSzName := "request_size"
+	if p.compatibleMode {
+		reqSzName = "request_size_bytes"
+	}
 	p.reqSz, err = meter.Float64Histogram(
-		subsystem+"."+"request_size",
+		reqSzName,
 		metric.WithUnit(UnitBytes),
 		metric.WithDescription("The HTTP request sizes in bytes."),
 	)
@@ -237,6 +255,9 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 
 		elapsed := float64(time.Since(start)) / float64(time.Millisecond)
+		if p.compatibleMode {
+			elapsed = elapsed / 1000
+		}
 
 		url := p.RequestCounterURLLabelMappingFunc(c)
 		host := p.RequestCounterHostLabelMappingFunc(c)
@@ -274,14 +295,21 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-func configureMetrics(reg realprometheus.Registerer, serviceName string) *prometheus.Exporter {
+func (p *Prometheus) configureMetrics() *prometheus.Exporter {
+	serviceName := p.Subsystem
 	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(semconv.ServiceNameKey.String(serviceName)))
 	if err != nil {
 		panic(err)
 	}
-	exporter, err := prometheus.New(
-		prometheus.WithRegisterer(reg),
-	)
+
+	opts := []prometheus.Option{
+		prometheus.WithRegisterer(p.Registerer),
+		prometheus.WithNamespace(serviceName),
+	}
+	if p.compatibleMode {
+		opts = append(opts, prometheus.WithoutUnits())
+	}
+	exporter, err := prometheus.New(opts...)
 	if err != nil {
 		panic(err)
 	}
@@ -323,7 +351,7 @@ func configureMetrics(reg realprometheus.Registerer, serviceName string) *promet
 }
 
 func (p *Prometheus) prometheusHandler() echo.HandlerFunc {
-	configureMetrics(p.Registerer, p.Subsystem)
+	p.configureMetrics()
 
 	h := promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
 

@@ -18,24 +18,22 @@ but the metrics name diffs.
 **counter**
 
 ```
-requests_total_ratio_total
+requests_ratio_total
+
+compatible mode: requests_total
 ```
 
 
 **histogram**
 
 ```
-request_duration_milliseconds_bucket
-request_duration_milliseconds_sum
-request_duration_milliseconds_count
+request_duration_milliseconds{_bucket, _sum, _count}
 
-request_size_bytes_bucket
-request_size_bytes_sum
-request_size_bytes_count
+compatible mode: request_duration_seconds{_bucket, _sum, _count}
 
-response_size_bytes_bucket
-response_size_bytes_sum
-response_size_bytes_count
+request_size_bytes{_bucket, _sum, _count}
+
+response_size_bytes{_bucket, _sum, _count}
 ```
 
 echo's middleware result:
@@ -65,6 +63,7 @@ The `echoprometheus` middleware registers the following metrics by default:
 * Histogram `response_size_bytes`
 * Histogram `request_size_bytes`
 
+histogram will have `_bucket`, `_sum`, `_count` suffix.
 ------------------------------------
 
 ## warning

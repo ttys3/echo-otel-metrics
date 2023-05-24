@@ -26,7 +26,7 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
-	prom := echootelmetrics.NewPrometheus(serviceName, URLSkipper)
+	prom := echootelmetrics.NewPrometheus(serviceName, URLSkipper, false)
 	prom.Use(e)
 
 	// Route => handler
