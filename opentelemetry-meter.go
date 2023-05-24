@@ -43,9 +43,11 @@ const (
 	UnitMilliseconds  = "ms"
 )
 
-// reqDurBuckets is the buckets for request duration. Here, we use the prometheus defaults
+// reqDurBucketsMilliseconds is the buckets for request duration. Here, we use the prometheus defaults
 // which are for ~10s request length max: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
-var reqDurBuckets = []float64{.005 * 1000, .01 * 1000, .025 * 1000, .05 * 1000, .1 * 1000, .25 * 1000, .5 * 1000, 1 * 1000, 2.5 * 1000, 5 * 1000, 10 * 1000}
+var reqDurBucketsMilliseconds = []float64{.005 * 1000, .01 * 1000, .025 * 1000, .05 * 1000, .1 * 1000, .25 * 1000, .5 * 1000, 1 * 1000, 2.5 * 1000, 5 * 1000, 10 * 1000}
+
+var reqDurBucketsSeconds = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
 
 // reqSzBuckets is the buckets for request size. Here we define a spectrom from 1KB thru 1NB up to 10MB.
 var reqSzBuckets = []float64{1.0 * KB, 2.0 * KB, 5.0 * KB, 10.0 * KB, 100 * KB, 500 * KB, 1.0 * MB, 2.5 * MB, 5.0 * MB, 10.0 * MB}
@@ -337,11 +339,19 @@ func (p *Prometheus) configureMetrics() *prometheus.Exporter {
 	}
 
 	durationBucketsView := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "*_duration"},
+		sdkmetric.Instrument{Name: "*_duration_milliseconds"},
 		sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
-			Boundaries: reqDurBuckets,
+			Boundaries: reqDurBucketsMilliseconds,
 		}},
 	)
+	if p.compatibleMode {
+		durationBucketsView = sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "*_duration_seconds"},
+			sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
+				Boundaries: reqDurBucketsSeconds,
+			}},
+		)
+	}
 
 	reqBytesBucketsView := sdkmetric.NewView(
 		sdkmetric.Instrument{Name: "*request_size"},
