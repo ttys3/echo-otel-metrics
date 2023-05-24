@@ -4,7 +4,12 @@ this is an opentelemetry metrics middleware for echo http framework.
 
 it addd a custom opentelemetry metrics middleware `otelmetric` to echo framework, and setup a prometheus exporter endpoint at `/metrics`.
 
-this `otelmetric` middleware can work as a replacement for `github.com/labstack/echo-contrib/prometheus`
+this `otelmetric` middleware can work as a replacement for
+
+`https://github.com/labstack/echo-contrib/tree/master/echoprometheus`
+
+or the legacy 
+`https://github.com/labstack/echo-contrib/tree/master/prometheus`
 
 as of this module get v0.3.0 (otel metric v1.16.0), the metrics component is stable now, so this middleware is stable too.
 

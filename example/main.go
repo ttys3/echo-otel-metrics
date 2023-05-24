@@ -2,6 +2,7 @@ package main
 
 import (
 	"go.opentelemetry.io/otel/metric"
+	"log"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -39,6 +40,8 @@ func main() {
 	})
 
 	// Start server
+	log.Printf("view metrics at http://localhost:1323/metrics")
+	log.Printf("serve at http://localhost:1323/")
 	e.Logger.Fatal(e.Start(":1323"))
 }
 

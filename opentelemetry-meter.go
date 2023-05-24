@@ -53,69 +53,6 @@ var reqSzBuckets = []float64{1.0 * KB, 2.0 * KB, 5.0 * KB, 10.0 * KB, 100 * KB, 
 // resSzBuckets is the buckets for response size. Here we define a spectrom from 1KB thru 1NB up to 10MB.
 var resSzBuckets = []float64{1.0 * KB, 2.0 * KB, 5.0 * KB, 10.0 * KB, 100 * KB, 500 * KB, 1.0 * MB, 2.5 * MB, 5.0 * MB, 10.0 * MB}
 
-// Standard default metrics
-//
-//	counter, counter_vec, gauge, gauge_vec,
-//	histogram, histogram_vec, summary, summary_vec
-var reqCnt = &Metric{
-	ID:          "reqCnt",
-	Name:        "requests_total",
-	Description: "How many HTTP requests processed, partitioned by status code and HTTP method.",
-	Type:        "counter_vec",
-	// see https://github.com/open-telemetry/opentelemetry-go/pull/3776
-	// The go.opentelemetry.io/otel/metric/unit package is deprecated. Use the equivalent unit string instead. (#3776)
-	// Use "1" instead of unit.Dimensionless
-	// Use "By" instead of unit.Bytes
-	// Use "ms" instead of unit.Milliseconds
-	Unit: UnitDimensionless,
-	Args: []string{"code", "method", "host", "url"},
-}
-
-// the exported metrics name will force suffix by unit, see
-// https://github.com/open-telemetry/opentelemetry-go/blob/46f2ce5ca6adaa264c37cdbba251c9184a06ed7f/exporters/prometheus/exporter.go#L315
-//
-//	var unitSuffixes = map[string]string{
-//		"1":  "_ratio",
-//		"By": "_bytes",
-//		"ms": "_milliseconds",
-//	}
-var reqDur = &Metric{
-	ID:          "reqDur",
-	Name:        "request_duration",
-	Description: "The HTTP request latencies in seconds.",
-	Args:        []string{"code", "method", "url"},
-	Type:        "histogram_vec",
-	Unit:        UnitMilliseconds,
-	Buckets:     reqDurBuckets,
-}
-
-var resSz = &Metric{
-	ID:          "resSz",
-	Name:        "response_size",
-	Description: "The HTTP response sizes in bytes.",
-	Args:        []string{"code", "method", "url"},
-	Type:        "histogram_vec",
-	Unit:        UnitBytes,
-	Buckets:     resSzBuckets,
-}
-
-var reqSz = &Metric{
-	ID:          "reqSz",
-	Name:        "request_size",
-	Description: "The HTTP request sizes in bytes.",
-	Args:        []string{"code", "method", "url"},
-	Type:        "histogram_vec",
-	Unit:        UnitBytes,
-	Buckets:     reqSzBuckets,
-}
-
-var standardMetrics = []*Metric{
-	reqCnt,
-	reqDur,
-	resSz,
-	reqSz,
-}
-
 /*
 RequestCounterLabelMappingFunc is a function which can be supplied to the middleware to control
 the cardinality of the request counter's "url" label, which might be required in some contexts.
@@ -138,18 +75,6 @@ It can also be applied for the "Host" label
 */
 type RequestCounterLabelMappingFunc func(c echo.Context) string
 
-// Metric is a definition for the name, description, type, ID, and
-// prometheus.Collector type (i.e. CounterVec, Summary, etc) of each metric
-type Metric struct {
-	ID          string
-	Name        string
-	Description string
-	Type        string
-	Unit        string
-	Args        []string
-	Buckets     []float64
-}
-
 // Prometheus contains the metrics gathered by the instance and its path
 type Prometheus struct {
 	reqCnt               metric.Int64Counter
@@ -157,16 +82,12 @@ type Prometheus struct {
 	router               *echo.Echo
 	listenAddress        string
 
-	MetricsList []*Metric
 	MetricsPath string
 	Subsystem   string
 	Skipper     middleware.Skipper
 
 	RequestCounterURLLabelMappingFunc  RequestCounterLabelMappingFunc
 	RequestCounterHostLabelMappingFunc RequestCounterLabelMappingFunc
-
-	// Context string to use as a prometheus URL label
-	URLLabelFromContext string
 
 	// Registry is the prometheus registry that will be used as the default Registerer and
 	// Gatherer if these are not specified.
@@ -194,7 +115,6 @@ func NewPrometheus(subsystem string, skipper middleware.Skipper) *Prometheus {
 	registry := realprometheus.NewRegistry()
 
 	p := &Prometheus{
-		MetricsList: standardMetrics,
 		MetricsPath: defaultMetricPath,
 		Subsystem:   subsystem,
 		Skipper:     skipper,
@@ -211,28 +131,61 @@ func NewPrometheus(subsystem string, skipper middleware.Skipper) *Prometheus {
 		},
 	}
 
-	p.registerMetrics(subsystem)
+	var err error
+	// Standard default metrics
+	p.reqCnt, err = meter.Int64Counter(
+		subsystem+"."+"requests_total",
+		// see https://github.com/open-telemetry/opentelemetry-go/pull/3776
+		// The go.opentelemetry.io/otel/metric/unit package is deprecated. Use the equivalent unit string instead. (#3776)
+		// Use "1" instead of unit.Dimensionless
+		// Use "By" instead of unit.Bytes
+		// Use "ms" instead of unit.Milliseconds
+
+		// the exported metrics name will force suffix by unit, see
+		// https://github.com/open-telemetry/opentelemetry-go/blob/46f2ce5ca6adaa264c37cdbba251c9184a06ed7f/exporters/prometheus/exporter.go#L315
+		//
+		//	var unitSuffixes = map[string]string{
+		//		"1":  "_ratio",
+		//		"By": "_bytes",
+		//		"ms": "_milliseconds",
+		//	}
+		metric.WithUnit(UnitDimensionless),
+		metric.WithDescription("How many HTTP requests processed, partitioned by status code and HTTP method."),
+	)
+
+	if err != nil {
+		panic(err)
+	}
+
+	p.reqDur, err = meter.Float64Histogram(
+		subsystem+"."+"request_duration",
+		metric.WithUnit(UnitMilliseconds),
+		metric.WithDescription("The HTTP request latencies in milliseconds."),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	p.resSz, err = meter.Float64Histogram(
+		subsystem+"."+"response_size",
+		metric.WithUnit(UnitBytes),
+		metric.WithDescription("The HTTP response sizes in bytes."),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	p.reqSz, err = meter.Float64Histogram(
+		subsystem+"."+"request_size",
+		metric.WithUnit(UnitBytes),
+		metric.WithDescription("The HTTP request sizes in bytes."),
+	)
+	if err != nil {
+		panic(err)
+	}
 
 	return p
 }
-
-// SetListenAddress for exposing metrics on address. If not set, it will be exposed at the
-// same address of the echo engine that is being used
-// func (p *Prometheus) SetListenAddress(address string) {
-// 	p.listenAddress = address
-// 	if p.listenAddress != "" {
-// 		p.router = echo.Echo().Router()
-// 	}
-// }
-
-// SetListenAddressWithRouter for using a separate router to expose metrics. (this keeps things like GET /metrics out of
-// your content's access log).
-// func (p *Prometheus) SetListenAddressWithRouter(listenAddress string, r *echo.Echo) {
-// 	p.listenAddress = listenAddress
-// 	if len(p.listenAddress) > 0 {
-// 		p.router = r
-// 	}
-// }
 
 // SetMetricsPath set metrics paths
 func (p *Prometheus) SetMetricsPath(e *echo.Echo) {
@@ -248,37 +201,6 @@ func (p *Prometheus) runServer() {
 	if p.listenAddress != "" {
 		// nolint: errcheck
 		go p.router.Start(p.listenAddress)
-	}
-}
-
-func (p *Prometheus) registerMetrics(subsystem string) {
-	for _, metricDef := range p.MetricsList {
-		switch metricDef {
-		case reqCnt:
-			p.reqCnt, _ = meter.Int64Counter(
-				subsystem+"."+metricDef.Name,
-				metric.WithUnit(metricDef.Unit),
-				metric.WithDescription(metricDef.Description),
-			)
-		case reqDur:
-			p.reqDur, _ = meter.Float64Histogram(
-				subsystem+"."+metricDef.Name,
-				metric.WithUnit(metricDef.Unit),
-				metric.WithDescription(metricDef.Description),
-			)
-		case resSz:
-			p.resSz, _ = meter.Float64Histogram(
-				subsystem+"."+metricDef.Name,
-				metric.WithUnit(metricDef.Unit),
-				metric.WithDescription(metricDef.Description),
-			)
-		case reqSz:
-			p.reqSz, _ = meter.Float64Histogram(
-				subsystem+"."+metricDef.Name,
-				metric.WithUnit(metricDef.Unit),
-				metric.WithDescription(metricDef.Description),
-			)
-		}
 	}
 }
 
@@ -317,14 +239,6 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 		elapsed := float64(time.Since(start)) / float64(time.Millisecond)
 
 		url := p.RequestCounterURLLabelMappingFunc(c)
-		if len(p.URLLabelFromContext) > 0 {
-			u := c.Get(p.URLLabelFromContext)
-			if u == nil {
-				u = "unknown"
-			}
-			url = u.(string)
-		}
-
 		host := p.RequestCounterHostLabelMappingFunc(c)
 
 		p.reqDur.Record(c.Request().Context(), elapsed, metric.WithAttributes(
@@ -394,7 +308,7 @@ func configureMetrics(reg realprometheus.Registerer, serviceName string) *promet
 	)
 
 	defaultView := sdkmetric.NewView(sdkmetric.Instrument{Name: "*", Kind: sdkmetric.InstrumentKindCounter},
-		sdkmetric.Stream{Name: "*"})
+		sdkmetric.Stream{})
 
 	provider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(res),
