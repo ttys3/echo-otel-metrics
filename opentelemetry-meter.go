@@ -73,11 +73,12 @@ var reqCnt = &Metric{
 
 // the exported metrics name will force suffix by unit, see
 // https://github.com/open-telemetry/opentelemetry-go/blob/46f2ce5ca6adaa264c37cdbba251c9184a06ed7f/exporters/prometheus/exporter.go#L315
-// var unitSuffixes = map[string]string{
-//	"1":  "_ratio",
-//	"By": "_bytes",
-//	"ms": "_milliseconds",
-// }
+//
+//	var unitSuffixes = map[string]string{
+//		"1":  "_ratio",
+//		"By": "_bytes",
+//		"ms": "_milliseconds",
+//	}
 var reqDur = &Metric{
 	ID:          "reqDur",
 	Name:        "request_duration",
@@ -201,7 +202,9 @@ func NewPrometheus(subsystem string, skipper middleware.Skipper) *Prometheus {
 		Registerer:  registry,
 		Gatherer:    registry,
 		RequestCounterURLLabelMappingFunc: func(c echo.Context) string {
-			return c.Path() // i.e. by default do nothing, i.e. return URL as is
+			// contains route path ala `/users/:id`
+			// as of Echo v4.10.1 path is empty for 404 cases (when router did not find any matching routes)
+			return c.Path()
 		},
 		RequestCounterHostLabelMappingFunc: func(c echo.Context) string {
 			return c.Request().Host
@@ -322,9 +325,12 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 			url = u.(string)
 		}
 
+		host := p.RequestCounterHostLabelMappingFunc(c)
+
 		p.reqDur.Record(c.Request().Context(), elapsed, metric.WithAttributes(
 			attribute.Int("code", status),
 			attribute.String("method", c.Request().Method),
+			attribute.String("host", host),
 			attribute.String("url", url)))
 
 		// "code", "method", "host", "url"
@@ -332,13 +338,14 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 			metric.WithAttributes(
 				attribute.Int("code", status),
 				attribute.String("method", c.Request().Method),
-				attribute.String("host", p.RequestCounterHostLabelMappingFunc(c)),
+				attribute.String("host", host),
 				attribute.String("url", url)))
 
 		p.reqSz.Record(c.Request().Context(), float64(reqSz),
 			metric.WithAttributes(
 				attribute.Int("code", status),
 				attribute.String("method", c.Request().Method),
+				attribute.String("host", host),
 				attribute.String("url", url)))
 
 		resSz := float64(c.Response().Size)
@@ -346,6 +353,7 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 			metric.WithAttributes(
 				attribute.Int("code", status),
 				attribute.String("method", c.Request().Method),
+				attribute.String("host", host),
 				attribute.String("url", url)))
 
 		return err
