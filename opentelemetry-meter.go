@@ -77,11 +77,13 @@ type RequestCounterLabelMappingFunc func(c echo.Context) string
 
 // Prometheus contains the metrics gathered by the instance and its path
 type Prometheus struct {
-	reqCnt               metric.Int64Counter
-	reqDur, reqSz, resSz metric.Float64Histogram
-	router               *echo.Echo
-	listenAddress        string
-	compatibleMode       bool // run as echo prometheus middleware compatible mode
+	reqCnt           metric.Int64Counter
+	reqDurCompatible metric.Float64Histogram
+	reqDur           metric.Int64Histogram
+	reqSz, resSz     metric.Int64Histogram
+	router           *echo.Echo
+	listenAddress    string
+	compatibleMode   bool // run as echo prometheus middleware compatible mode
 
 	MetricsPath    string
 	Subsystem      string
@@ -165,12 +167,19 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 		panic(err)
 	}
 
-	reqDurName := "request_duration"
 	if p.compatibleMode {
-		reqDurName = "request_duration_seconds"
+		p.reqDurCompatible, err = meter.Float64Histogram(
+			"request_duration_seconds",
+			metric.WithUnit("s"),
+			metric.WithDescription("The HTTP request latencies in seconds."),
+		)
+		if err != nil {
+			panic(err)
+		}
 	}
-	p.reqDur, err = meter.Float64Histogram(
-		reqDurName,
+
+	p.reqDur, err = meter.Int64Histogram(
+		"request_duration",
 		metric.WithUnit(UnitMilliseconds),
 		metric.WithDescription("The HTTP request latencies in milliseconds."),
 	)
@@ -182,7 +191,7 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 	if p.compatibleMode {
 		resSzName = "response_size_bytes"
 	}
-	p.resSz, err = meter.Float64Histogram(
+	p.resSz, err = meter.Int64Histogram(
 		resSzName,
 		metric.WithUnit(UnitBytes),
 		metric.WithDescription("The HTTP response sizes in bytes."),
@@ -195,7 +204,7 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 	if p.compatibleMode {
 		reqSzName = "request_size_bytes"
 	}
-	p.reqSz, err = meter.Float64Histogram(
+	p.reqSz, err = meter.Int64Histogram(
 		reqSzName,
 		metric.WithUnit(UnitBytes),
 		metric.WithDescription("The HTTP request sizes in bytes."),
@@ -256,19 +265,25 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 			}
 		}
 
-		elapsed := float64(time.Since(start)) / float64(time.Millisecond)
-		if p.compatibleMode {
-			elapsed = elapsed / 1000
-		}
+		elapsed := time.Since(start) / time.Millisecond
 
 		url := p.RequestCounterURLLabelMappingFunc(c)
 		host := p.RequestCounterHostLabelMappingFunc(c)
 
-		p.reqDur.Record(c.Request().Context(), elapsed, metric.WithAttributes(
-			attribute.Int("code", status),
-			attribute.String("method", c.Request().Method),
-			attribute.String("host", host),
-			attribute.String("url", url)))
+		if !p.compatibleMode {
+			p.reqDur.Record(c.Request().Context(), int64(elapsed), metric.WithAttributes(
+				attribute.Int("code", status),
+				attribute.String("method", c.Request().Method),
+				attribute.String("host", host),
+				attribute.String("url", url)))
+		} else {
+			elapsedSeconds := float64(elapsed) / float64(1000)
+			p.reqDurCompatible.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(
+				attribute.Int("code", status),
+				attribute.String("method", c.Request().Method),
+				attribute.String("host", host),
+				attribute.String("url", url)))
+		}
 
 		// "code", "method", "host", "url"
 		p.reqCnt.Add(c.Request().Context(), 1,
@@ -278,7 +293,7 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 				attribute.String("host", host),
 				attribute.String("url", url)))
 
-		p.reqSz.Record(c.Request().Context(), float64(reqSz),
+		p.reqSz.Record(c.Request().Context(), int64(reqSz),
 			metric.WithAttributes(
 				attribute.Int("code", status),
 				attribute.String("method", c.Request().Method),
@@ -286,7 +301,7 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 				attribute.String("url", url)))
 
 		resSz := float64(c.Response().Size)
-		p.resSz.Record(c.Request().Context(), resSz,
+		p.resSz.Record(c.Request().Context(), int64(resSz),
 			metric.WithAttributes(
 				attribute.Int("code", status),
 				attribute.String("method", c.Request().Method),
