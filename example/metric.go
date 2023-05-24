@@ -11,7 +11,7 @@ import (
 var Meter = otel.GetMeterProvider().Meter(serviceName)
 
 var demoCounter, _ = Meter.Int64Counter(
-	serviceName+".my_counter",
-	metric.WithUnit("1"),
+	"foobar",
+	// metric.WithUnit("1"),
 	metric.WithDescription("Just a test counter"),
 )
