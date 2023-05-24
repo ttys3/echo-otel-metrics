@@ -1,15 +1,17 @@
 package main
 
 import (
-	"go.opentelemetry.io/otel/metric/global"
-	"go.opentelemetry.io/otel/metric/instrument"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // Meter can be a global/package variable.
-var Meter = global.MeterProvider().Meter(serviceName)
+// or use short https://github.com/open-telemetry/opentelemetry-go/blob/46f2ce5ca6adaa264c37cdbba251c9184a06ed7f/metric.go#LL35C6-L35C11
+// Meter() which is short for GetMeterProvider().Meter(name)
+var Meter = otel.GetMeterProvider().Meter(serviceName)
 
-var demoCounter, _ = Meter.SyncInt64().Counter(
+var demoCounter, _ = Meter.Int64Counter(
 	serviceName+".my_counter",
-	instrument.WithUnit("1"),
-	instrument.WithDescription("Just a test counter"),
+	metric.WithUnit("1"),
+	metric.WithDescription("Just a test counter"),
 )

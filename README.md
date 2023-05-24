@@ -8,9 +8,11 @@ this `otelmetric` middleware can work as a replacement for `github.com/labstack/
 
 ## warning
 
-according https://opentelemetry.io/docs/instrumentation/go/
+status https://opentelemetry.io/docs/instrumentation/go/
 
-the status Metrics component for OpenTelemetry Go is **Alpha** currently, use it at your own risk
+the Metrics component for OpenTelemetry Go is **Stable** now!
+
+see https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.16.0
 
 ## docs
 
