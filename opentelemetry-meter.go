@@ -83,9 +83,10 @@ type Prometheus struct {
 	listenAddress        string
 	compatibleMode       bool // run as echo prometheus middleware compatible mode
 
-	MetricsPath string
-	Subsystem   string
-	Skipper     middleware.Skipper
+	MetricsPath    string
+	Subsystem      string
+	ServiceVersion string
+	Skipper        middleware.Skipper
 
 	RequestCounterURLLabelMappingFunc  RequestCounterLabelMappingFunc
 	RequestCounterHostLabelMappingFunc RequestCounterLabelMappingFunc
@@ -104,7 +105,7 @@ type Prometheus struct {
 }
 
 // NewPrometheus generates a new set of metrics with a certain subsystem name
-func NewPrometheus(subsystem string, skipper middleware.Skipper, compatibleMode bool) *Prometheus {
+func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.Skipper, compatibleMode bool) *Prometheus {
 	if skipper == nil {
 		skipper = middleware.DefaultSkipper
 	}
@@ -119,6 +120,7 @@ func NewPrometheus(subsystem string, skipper middleware.Skipper, compatibleMode 
 		compatibleMode: compatibleMode,
 		MetricsPath:    defaultMetricPath,
 		Subsystem:      subsystem,
+		ServiceVersion: serviceVersion,
 		Skipper:        skipper,
 		Registry:       registry,
 		Registerer:     registry,
@@ -297,7 +299,11 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 
 func (p *Prometheus) configureMetrics() *prometheus.Exporter {
 	serviceName := p.Subsystem
-	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(semconv.ServiceNameKey.String(serviceName)))
+	res, err := resource.Merge(resource.Default(),
+		resource.NewSchemaless(
+			semconv.ServiceName(serviceName),
+			semconv.ServiceVersion(p.ServiceVersion),
+		))
 	if err != nil {
 		panic(err)
 	}
@@ -308,6 +314,7 @@ func (p *Prometheus) configureMetrics() *prometheus.Exporter {
 	}
 	if p.compatibleMode {
 		opts = append(opts, prometheus.WithoutUnits())
+		opts = append(opts, prometheus.WithoutScopeInfo())
 	}
 	exporter, err := prometheus.New(opts...)
 	if err != nil {
