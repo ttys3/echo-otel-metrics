@@ -71,6 +71,13 @@ var reqCnt = &Metric{
 	Args: []string{"code", "method", "host", "url"},
 }
 
+// the exported metrics name will force suffix by unit, see
+// https://github.com/open-telemetry/opentelemetry-go/blob/46f2ce5ca6adaa264c37cdbba251c9184a06ed7f/exporters/prometheus/exporter.go#L315
+// var unitSuffixes = map[string]string{
+//	"1":  "_ratio",
+//	"By": "_bytes",
+//	"ms": "_milliseconds",
+// }
 var reqDur = &Metric{
 	ID:          "reqDur",
 	Name:        "request_duration",
