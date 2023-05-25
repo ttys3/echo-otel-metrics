@@ -49,11 +49,8 @@ var reqDurBucketsMilliseconds = []float64{.005 * 1000, .01 * 1000, .025 * 1000, 
 
 var reqDurBucketsSeconds = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
 
-// reqSzBuckets is the buckets for request size. Here we define a spectrom from 1KB thru 1NB up to 10MB.
-var reqSzBuckets = []float64{1.0 * KB, 2.0 * KB, 5.0 * KB, 10.0 * KB, 100 * KB, 500 * KB, 1.0 * MB, 2.5 * MB, 5.0 * MB, 10.0 * MB}
-
-// resSzBuckets is the buckets for response size. Here we define a spectrom from 1KB thru 1NB up to 10MB.
-var resSzBuckets = []float64{1.0 * KB, 2.0 * KB, 5.0 * KB, 10.0 * KB, 100 * KB, 500 * KB, 1.0 * MB, 2.5 * MB, 5.0 * MB, 10.0 * MB}
+// byteBuckets is the buckets for request/response size. Here we define a spectrom from 1KB thru 1NB up to 10MB.
+var byteBuckets = []float64{1.0 * KB, 2.0 * KB, 5.0 * KB, 10.0 * KB, 100 * KB, 500 * KB, 1.0 * MB, 2.5 * MB, 5.0 * MB, 10.0 * MB}
 
 /*
 RequestCounterLabelMappingFunc is a function which can be supplied to the middleware to control
@@ -356,14 +353,14 @@ func (p *Prometheus) configureMetrics() *prometheus.Exporter {
 	reqBytesBucketsView := sdkmetric.NewView(
 		sdkmetric.Instrument{Name: "*request_size"},
 		sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
-			Boundaries: reqSzBuckets,
+			Boundaries: byteBuckets,
 		}},
 	)
 
 	rspBytesBucketsView := sdkmetric.NewView(
 		sdkmetric.Instrument{Name: "*response_size"},
 		sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
-			Boundaries: resSzBuckets,
+			Boundaries: byteBuckets,
 		}},
 	)
 
