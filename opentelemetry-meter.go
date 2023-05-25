@@ -186,12 +186,8 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 		}
 	}
 
-	resSzName := "response_size"
-	if p.compatibleMode {
-		resSzName = "response_size_bytes"
-	}
 	p.resSz, err = meter.Int64Histogram(
-		resSzName,
+		"response_size",
 		metric.WithUnit(unitBytes),
 		metric.WithDescription("The HTTP response sizes in bytes."),
 	)
@@ -199,12 +195,8 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 		panic(err)
 	}
 
-	reqSzName := "request_size"
-	if p.compatibleMode {
-		reqSzName = "request_size_bytes"
-	}
 	p.reqSz, err = meter.Int64Histogram(
-		reqSzName,
+		"request_size",
 		metric.WithUnit(unitBytes),
 		metric.WithDescription("The HTTP request sizes in bytes."),
 	)
@@ -327,7 +319,6 @@ func (p *Prometheus) configureMetrics() *prometheus.Exporter {
 		prometheus.WithNamespace(serviceName),
 	}
 	if p.compatibleMode {
-		opts = append(opts, prometheus.WithoutUnits())
 		opts = append(opts, prometheus.WithoutScopeInfo())
 	}
 	exporter, err := prometheus.New(opts...)
