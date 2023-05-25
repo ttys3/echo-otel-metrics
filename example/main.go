@@ -27,7 +27,7 @@ func main() {
 	e.Use(middleware.Recover())
 
 	prom := echootelmetrics.NewPrometheus(serviceName, "v0.1.0", URLSkipper, false)
-	prom.Use(e)
+	prom.Setup(e)
 
 	// Route => handler
 	e.GET("/", func(c echo.Context) error {

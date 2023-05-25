@@ -74,20 +74,25 @@ It can also be applied for the "Host" label
 */
 type RequestCounterLabelMappingFunc func(c echo.Context) string
 
-// Prometheus contains the metrics gathered by the instance and its path
-type Prometheus struct {
-	reqCnt           metric.Int64Counter
-	reqDurCompatible metric.Float64Histogram
-	reqDur           metric.Int64Histogram
-	reqSz, resSz     metric.Int64Histogram
-	router           *echo.Echo
-	listenAddress    string
-	compatibleMode   bool // run as echo prometheus middleware compatible mode
+// MiddlewareConfig contains the configuration for creating prometheus middleware collecting several default metrics.
+type MiddlewareConfig struct {
+	// Skipper defines a function to skip middleware.
+	Skipper middleware.Skipper
 
-	MetricsPath    string
-	Subsystem      string
+	// Namespace is components of the fully-qualified name of the Metric (created by joining Namespace,Subsystem and Name components with "_")
+	// Optional
+	Namespace string
+
+	// Subsystem is components of the fully-qualified name of the Metric (created by joining Namespace,Subsystem and Name components with "_")
+	// Defaults to: "echo"
+	Subsystem string
+
 	ServiceVersion string
-	Skipper        middleware.Skipper
+
+	// run as [echo prometheus middleware](https://github.com/labstack/echo-contrib/blob/master/echoprometheus) compatible mode
+	CompatibleMode bool
+
+	MetricsPath string
 
 	RequestCounterURLLabelMappingFunc  RequestCounterLabelMappingFunc
 	RequestCounterHostLabelMappingFunc RequestCounterLabelMappingFunc
@@ -96,44 +101,69 @@ type Prometheus struct {
 	// Gatherer if these are not specified.
 	Registry *realprometheus.Registry
 
+	// Registerer sets the prometheus.Registerer instance the middleware will register these metrics with.
+	// Defaults to: prometheus.DefaultRegisterer
 	Registerer realprometheus.Registerer
 
-	// Gatherer is the prometheus gatherer to gather
-	// metrics with.
-	//
+	// Gatherer is the prometheus gatherer to gather metrics with.
 	// If not specified the Registry will be used as default.
 	Gatherer realprometheus.Gatherer
 }
 
+// Prometheus contains the metrics gathered by the instance and its path
+type Prometheus struct {
+	reqCnt           metric.Int64Counter
+	reqDurCompatible metric.Float64Histogram
+	reqDur           metric.Int64Histogram
+	reqSz, resSz     metric.Int64Histogram
+	router           *echo.Echo
+
+	*MiddlewareConfig
+}
+
 // NewPrometheus generates a new set of metrics with a certain subsystem name
-func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.Skipper, compatibleMode bool) *Prometheus {
-	if skipper == nil {
-		skipper = middleware.DefaultSkipper
+func NewPrometheus(config MiddlewareConfig) *Prometheus {
+	if config.Skipper == nil {
+		config.Skipper = middleware.DefaultSkipper
 	}
 
-	if subsystem == "" {
-		subsystem = defaultSubsystem
+	if config.Subsystem == "" {
+		config.Subsystem = defaultSubsystem
+	}
+
+	if config.MetricsPath == "" {
+		config.MetricsPath = defaultMetricPath
 	}
 
 	registry := realprometheus.NewRegistry()
 
-	p := &Prometheus{
-		compatibleMode: compatibleMode,
-		MetricsPath:    defaultMetricPath,
-		Subsystem:      subsystem,
-		ServiceVersion: serviceVersion,
-		Skipper:        skipper,
-		Registry:       registry,
-		Registerer:     registry,
-		Gatherer:       registry,
-		RequestCounterURLLabelMappingFunc: func(c echo.Context) string {
+	if config.Registry == nil {
+		config.Registry = registry
+	}
+
+	if config.Registerer == nil {
+		config.Registerer = registry
+	}
+	if config.Gatherer == nil {
+		config.Gatherer = registry
+	}
+
+	if config.RequestCounterURLLabelMappingFunc == nil {
+		config.RequestCounterURLLabelMappingFunc = func(c echo.Context) string {
 			// contains route path ala `/users/:id`
 			// as of Echo v4.10.1 path is empty for 404 cases (when router did not find any matching routes)
 			return c.Path()
-		},
-		RequestCounterHostLabelMappingFunc: func(c echo.Context) string {
+		}
+	}
+
+	if config.RequestCounterHostLabelMappingFunc == nil {
+		config.RequestCounterHostLabelMappingFunc = func(c echo.Context) string {
 			return c.Request().Host
-		},
+		}
+	}
+
+	p := &Prometheus{
+		MiddlewareConfig: &config,
 	}
 
 	var err error
@@ -144,10 +174,10 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 		// the exporter will enforce the `_total` suffix for counter, so we do not need it here
 		"requests",
 		// see https://github.com/open-telemetry/opentelemetry-go/pull/3776
-		// The go.opentelemetry.io/otel/metric/unit package is deprecated. Use the equivalent unit string instead. (#3776)
-		// Use "1" instead of unit.Dimensionless
-		// Use "By" instead of unit.Bytes
-		// Use "ms" instead of unit.Milliseconds
+		// The go.opentelemetry.io/otel/metric/unit package is deprecated. Setup the equivalent unit string instead. (#3776)
+		// Setup "1" instead of unit.Dimensionless
+		// Setup "By" instead of unit.Bytes
+		// Setup "ms" instead of unit.Milliseconds
 
 		// the exported metrics name will force suffix by unit, see
 		// https://github.com/open-telemetry/opentelemetry-go/blob/46f2ce5ca6adaa264c37cdbba251c9184a06ed7f/exporters/prometheus/exporter.go#L315
@@ -166,7 +196,7 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 		panic(err)
 	}
 
-	if !p.compatibleMode {
+	if !p.CompatibleMode {
 		p.reqDur, err = meter.Int64Histogram(
 			"request_duration",
 			metric.WithUnit(unitMilliseconds),
@@ -207,27 +237,15 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 	return p
 }
 
-// SetMetricsPath set metrics paths
-func (p *Prometheus) SetMetricsPath(e *echo.Echo) {
-	if p.listenAddress != "" {
-		p.router.GET(p.MetricsPath, p.prometheusHandler())
-		p.runServer()
-	} else {
-		e.GET(p.MetricsPath, p.prometheusHandler())
-	}
+// SetMetricsExporterRoute set metrics paths
+func (p *Prometheus) SetMetricsExporterRoute(e *echo.Echo) {
+	e.GET(p.MetricsPath, p.ExporterHandler())
 }
 
-func (p *Prometheus) runServer() {
-	if p.listenAddress != "" {
-		// nolint: errcheck
-		go p.router.Start(p.listenAddress)
-	}
-}
-
-// Use adds the middleware to the Echo engine.
-func (p *Prometheus) Use(e *echo.Echo) {
+// Setup adds the middleware to the Echo engine.
+func (p *Prometheus) Setup(e *echo.Echo) {
 	e.Use(p.HandlerFunc)
-	p.SetMetricsPath(e)
+	p.SetMetricsExporterRoute(e)
 }
 
 // HandlerFunc defines handler function for middleware
@@ -261,7 +279,7 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 		url := p.RequestCounterURLLabelMappingFunc(c)
 		host := p.RequestCounterHostLabelMappingFunc(c)
 
-		if !p.compatibleMode {
+		if !p.CompatibleMode {
 			p.reqDur.Record(c.Request().Context(), int64(elapsed), metric.WithAttributes(
 				attribute.Int("code", status),
 				attribute.String("method", c.Request().Method),
@@ -303,7 +321,7 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-func (p *Prometheus) configureMetrics() *prometheus.Exporter {
+func (p *Prometheus) initMetricsExporter() *prometheus.Exporter {
 	serviceName := p.Subsystem
 	res, err := resource.Merge(resource.Default(),
 		resource.NewSchemaless(
@@ -318,7 +336,7 @@ func (p *Prometheus) configureMetrics() *prometheus.Exporter {
 		prometheus.WithRegisterer(p.Registerer),
 		prometheus.WithNamespace(serviceName),
 	}
-	if p.compatibleMode {
+	if p.CompatibleMode {
 		opts = append(opts, prometheus.WithoutScopeInfo())
 	}
 	exporter, err := prometheus.New(opts...)
@@ -332,7 +350,7 @@ func (p *Prometheus) configureMetrics() *prometheus.Exporter {
 			Boundaries: reqDurBucketsMilliseconds,
 		}},
 	)
-	if p.compatibleMode {
+	if p.CompatibleMode {
 		durationBucketsView = sdkmetric.NewView(
 			sdkmetric.Instrument{Name: "*_duration_seconds"},
 			sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
@@ -370,8 +388,8 @@ func (p *Prometheus) configureMetrics() *prometheus.Exporter {
 	return exporter
 }
 
-func (p *Prometheus) prometheusHandler() echo.HandlerFunc {
-	p.configureMetrics()
+func (p *Prometheus) ExporterHandler() echo.HandlerFunc {
+	p.initMetricsExporter()
 
 	h := promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
 
