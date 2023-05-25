@@ -30,17 +30,17 @@ var (
 )
 
 const (
-	_          = iota // ignore first value by assigning to blank identifier
-	KB float64 = 1 << (10 * iota)
-	MB
-	GB
-	TB
+	_           = iota // ignore first value by assigning to blank identifier
+	_KB float64 = 1 << (10 * iota)
+	_MB
+	_GB
+	_TB
 )
 
 const (
-	UnitDimensionless = "1"
-	UnitBytes         = "By"
-	UnitMilliseconds  = "ms"
+	unitDimensionless = "1"
+	unitBytes         = "By"
+	unitMilliseconds  = "ms"
 )
 
 // reqDurBucketsMilliseconds is the buckets for request duration. Here, we use the prometheus defaults
@@ -50,7 +50,7 @@ var reqDurBucketsMilliseconds = []float64{.005 * 1000, .01 * 1000, .025 * 1000, 
 var reqDurBucketsSeconds = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
 
 // byteBuckets is the buckets for request/response size. Here we define a spectrom from 1KB thru 1NB up to 10MB.
-var byteBuckets = []float64{1.0 * KB, 2.0 * KB, 5.0 * KB, 10.0 * KB, 100 * KB, 500 * KB, 1.0 * MB, 2.5 * MB, 5.0 * MB, 10.0 * MB}
+var byteBuckets = []float64{1.0 * _KB, 2.0 * _KB, 5.0 * _KB, 10.0 * _KB, 100 * _KB, 500 * _KB, 1.0 * _MB, 2.5 * _MB, 5.0 * _MB, 10.0 * _MB}
 
 /*
 RequestCounterLabelMappingFunc is a function which can be supplied to the middleware to control
@@ -179,7 +179,7 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 
 	p.reqDur, err = meter.Int64Histogram(
 		"request_duration",
-		metric.WithUnit(UnitMilliseconds),
+		metric.WithUnit(unitMilliseconds),
 		metric.WithDescription("The HTTP request latencies in milliseconds."),
 	)
 	if err != nil {
@@ -192,7 +192,7 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 	}
 	p.resSz, err = meter.Int64Histogram(
 		resSzName,
-		metric.WithUnit(UnitBytes),
+		metric.WithUnit(unitBytes),
 		metric.WithDescription("The HTTP response sizes in bytes."),
 	)
 	if err != nil {
@@ -205,7 +205,7 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 	}
 	p.reqSz, err = meter.Int64Histogram(
 		reqSzName,
-		metric.WithUnit(UnitBytes),
+		metric.WithUnit(unitBytes),
 		metric.WithDescription("The HTTP request sizes in bytes."),
 	)
 	if err != nil {
