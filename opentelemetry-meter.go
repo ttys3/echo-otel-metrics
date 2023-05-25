@@ -166,7 +166,16 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 		panic(err)
 	}
 
-	if p.compatibleMode {
+	if !p.compatibleMode {
+		p.reqDur, err = meter.Int64Histogram(
+			"request_duration",
+			metric.WithUnit(unitMilliseconds),
+			metric.WithDescription("The HTTP request latencies in milliseconds."),
+		)
+		if err != nil {
+			panic(err)
+		}
+	} else {
 		p.reqDurCompatible, err = meter.Float64Histogram(
 			"request_duration_seconds",
 			metric.WithUnit("s"),
@@ -175,15 +184,6 @@ func NewPrometheus(subsystem string, serviceVersion string, skipper middleware.S
 		if err != nil {
 			panic(err)
 		}
-	}
-
-	p.reqDur, err = meter.Int64Histogram(
-		"request_duration",
-		metric.WithUnit(unitMilliseconds),
-		metric.WithDescription("The HTTP request latencies in milliseconds."),
-	)
-	if err != nil {
-		panic(err)
 	}
 
 	resSzName := "response_size"
