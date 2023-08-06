@@ -12,7 +12,6 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/ttys3/echo-otel-metrics"
 )
 
 var serviceName = "otelmetric-demo"

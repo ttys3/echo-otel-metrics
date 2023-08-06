@@ -2,11 +2,11 @@ module echo-otel-metris-demo
 
 go 1.20
 
-replace github.com/ttys3/echo-otel-metrics => ../
+replace github.com/ttys3/echo-otel-metrics/v2 => ../
 
 require (
 	github.com/labstack/echo/v4 v4.11.1
-	github.com/ttys3/echo-otel-metrics v0.2.0
+	github.com/ttys3/echo-otel-metrics/v2 v2
 	go.opentelemetry.io/otel v1.16.0
 	go.opentelemetry.io/otel/metric v1.16.0
 )
