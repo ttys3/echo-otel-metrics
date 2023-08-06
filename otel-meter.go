@@ -202,7 +202,7 @@ func New(config MiddlewareConfig) *OtelMetrics {
 	}
 
 	p.resSz, err = meter.Int64Histogram(
-		"response_size",
+		"http.server.response.size",
 		metric.WithUnit(unitBytes),
 		metric.WithDescription("The HTTP response sizes in bytes."),
 	)
@@ -211,7 +211,7 @@ func New(config MiddlewareConfig) *OtelMetrics {
 	}
 
 	p.reqSz, err = meter.Int64Histogram(
-		"request_size",
+		"http.server.request.size",
 		metric.WithUnit(unitBytes),
 		metric.WithDescription("The HTTP request sizes in bytes."),
 	)
@@ -285,21 +285,24 @@ func (p *OtelMetrics) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 			statusCode,
 			method,
 			serverAddress,
-			httpRoute))
+			httpRoute,
+			scheme))
 
 		p.reqCnt.Add(c.Request().Context(), 1,
 			metric.WithAttributes(
 				statusCode,
 				method,
 				serverAddress,
-				httpRoute))
+				httpRoute,
+				scheme))
 
 		p.reqSz.Record(c.Request().Context(), int64(reqSz),
 			metric.WithAttributes(
 				statusCode,
 				method,
 				serverAddress,
-				httpRoute))
+				httpRoute,
+				scheme))
 
 		resSz := float64(c.Response().Size)
 		p.resSz.Record(c.Request().Context(), int64(resSz),
@@ -307,7 +310,8 @@ func (p *OtelMetrics) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 				statusCode,
 				method,
 				serverAddress,
-				httpRoute))
+				httpRoute,
+				scheme))
 
 		return err
 	}
@@ -334,21 +338,21 @@ func (p *OtelMetrics) initMetricsExporter() *prometheus.Exporter {
 	}
 
 	durationBucketsView := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "*_duration_seconds"},
+		sdkmetric.Instrument{Name: "*request.duration"},
 		sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
 			Boundaries: reqDurBucketsSeconds,
 		}},
 	)
 
 	reqBytesBucketsView := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "*request_size"},
+		sdkmetric.Instrument{Name: "*request.size"},
 		sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
 			Boundaries: byteBuckets,
 		}},
 	)
 
 	rspBytesBucketsView := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "*response_size"},
+		sdkmetric.Instrument{Name: "*response.size"},
 		sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
 			Boundaries: byteBuckets,
 		}},
