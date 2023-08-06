@@ -19,7 +19,7 @@ func TestCompModeCustomRegistryMetricsDoNotRecord404Route(t *testing.T) {
 
 	customRegistry := prometheus.NewRegistry()
 
-	prom := NewPrometheus(MiddlewareConfig{Registry: customRegistry, CompatibleMode: true})
+	prom := New(MiddlewareConfig{Registry: customRegistry, CompatibleMode: true})
 	e.Use(prom.HandlerFunc)
 	e.GET("/metrics", prom.ExporterHandler())
 
@@ -35,7 +35,7 @@ func TestNonCompModeCustomRegistryMetricsDoNotRecord404Route(t *testing.T) {
 
 	customRegistry := prometheus.NewRegistry()
 
-	prom := NewPrometheus(MiddlewareConfig{Registry: customRegistry, CompatibleMode: false})
+	prom := New(MiddlewareConfig{Registry: customRegistry, CompatibleMode: false})
 	e.Use(prom.HandlerFunc)
 	e.GET("/metrics", prom.ExporterHandler())
 
@@ -49,7 +49,7 @@ func TestNonCompModeCustomRegistryMetricsDoNotRecord404Route(t *testing.T) {
 func TestDefaultRegistryMetrics(t *testing.T) {
 	e := echo.New()
 
-	prom := NewPrometheus(MiddlewareConfig{CompatibleMode: true, Subsystem: "myapp"})
+	prom := New(MiddlewareConfig{CompatibleMode: true, Subsystem: "myapp"})
 	e.Use(prom.HandlerFunc)
 	e.GET("/metrics", prom.ExporterHandler())
 
@@ -66,7 +66,7 @@ func TestPrometheus_Buckets(t *testing.T) {
 
 	customRegistry := prometheus.NewRegistry()
 
-	prom := NewPrometheus(MiddlewareConfig{CompatibleMode: true, Registry: customRegistry})
+	prom := New(MiddlewareConfig{CompatibleMode: true, Registry: customRegistry})
 	e.Use(prom.HandlerFunc)
 	e.GET("/metrics", prom.ExporterHandler())
 
@@ -87,7 +87,7 @@ func TestMiddlewareConfig_Skipper(t *testing.T) {
 
 	customRegistry := prometheus.NewRegistry()
 
-	prom := NewPrometheus(MiddlewareConfig{
+	prom := New(MiddlewareConfig{
 		CompatibleMode: true,
 		Registry:       customRegistry,
 		Skipper: func(c echo.Context) bool {
@@ -120,7 +120,7 @@ func TestMiddlewareConfig_Skipper(t *testing.T) {
 func TestMetricsForErrors(t *testing.T) {
 	e := echo.New()
 	customRegistry := prometheus.NewRegistry()
-	prom := NewPrometheus(MiddlewareConfig{
+	prom := New(MiddlewareConfig{
 		CompatibleMode: true,
 		Subsystem:      "myapp",
 		Registry:       customRegistry,

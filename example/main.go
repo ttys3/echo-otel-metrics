@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/ttys3/echo-otel-metrics/v2"
 )
 
 var serviceName = "otelmetric-demo"
@@ -25,7 +26,11 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
-	prom := echootelmetrics.NewPrometheus(serviceName, "v0.1.0", URLSkipper, false)
+	prom := echootelmetrics.New(echootelmetrics.MiddlewareConfig{
+		Subsystem:      serviceName,
+		Skipper:        URLSkipper,
+		ServiceVersion: "v0.1.0",
+	})
 	prom.Setup(e)
 
 	// Route => handler

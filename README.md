@@ -20,6 +20,21 @@ and the metrics names are NOT compatible with echo official prometheus middlewar
 
 https://github.com/open-telemetry/semantic-conventions/blob/main/docs/http/http-metrics.md
 
+## usage
+
+```go
+import (
+    "github.com/ttys3/echo-otel-metrics/v2"
+)
+
+	prom := echootelmetrics.New(echootelmetrics.MiddlewareConfig{
+		Subsystem:      serviceName,
+		Skipper:        URLSkipper,
+		ServiceVersion: "v0.1.0",
+	})
+	prom.Setup(e)
+```
+
 ## warning
 
 status https://opentelemetry.io/docs/instrumentation/go/

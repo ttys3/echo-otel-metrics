@@ -1,4 +1,4 @@
-// Package otelmetric provides middleware to add opentelemetry metrics and Prometheus exporter.
+// Package otelmetric provides middleware to add opentelemetry metrics and OtelMetrics exporter.
 package echootelmetrics
 
 import (
@@ -22,7 +22,7 @@ import (
 )
 
 // Meter can be a global/package variable.
-var meter = otel.GetMeterProvider().Meter("echo")
+var meter = otel.GetMeterProvider().Meter("github.com/ttys3/echo-otel-metrics/v2")
 
 var (
 	defaultMetricPath = "/metrics"
@@ -106,8 +106,8 @@ type MiddlewareConfig struct {
 	Gatherer realprometheus.Gatherer
 }
 
-// Prometheus contains the metrics gathered by the instance and its path
-type Prometheus struct {
+// OtelMetrics contains the metrics gathered by the instance and its path
+type OtelMetrics struct {
 	reqCnt       metric.Int64Counter
 	reqDur       metric.Float64Histogram
 	reqSz, resSz metric.Int64Histogram
@@ -117,8 +117,8 @@ type Prometheus struct {
 	*MiddlewareConfig
 }
 
-// NewPrometheus generates a new set of metrics with a certain subsystem name
-func NewPrometheus(config MiddlewareConfig) *Prometheus {
+// New generates a new set of metrics with a certain subsystem name
+func New(config MiddlewareConfig) *OtelMetrics {
 	if config.Skipper == nil {
 		config.Skipper = middleware.DefaultSkipper
 	}
@@ -158,7 +158,7 @@ func NewPrometheus(config MiddlewareConfig) *Prometheus {
 		}
 	}
 
-	p := &Prometheus{
+	p := &OtelMetrics{
 		MiddlewareConfig: &config,
 	}
 
@@ -230,18 +230,18 @@ func NewPrometheus(config MiddlewareConfig) *Prometheus {
 }
 
 // SetMetricsExporterRoute set metrics paths
-func (p *Prometheus) SetMetricsExporterRoute(e *echo.Echo) {
+func (p *OtelMetrics) SetMetricsExporterRoute(e *echo.Echo) {
 	e.GET(p.MetricsPath, p.ExporterHandler())
 }
 
 // Setup adds the middleware to the Echo engine.
-func (p *Prometheus) Setup(e *echo.Echo) {
+func (p *OtelMetrics) Setup(e *echo.Echo) {
 	e.Use(p.HandlerFunc)
 	p.SetMetricsExporterRoute(e)
 }
 
 // HandlerFunc defines handler function for middleware
-func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
+func (p *OtelMetrics) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		if c.Path() == p.MetricsPath {
 			return next(c)
@@ -313,7 +313,7 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-func (p *Prometheus) initMetricsExporter() *prometheus.Exporter {
+func (p *OtelMetrics) initMetricsExporter() *prometheus.Exporter {
 	serviceName := p.Subsystem
 	res, err := resource.Merge(resource.Default(),
 		resource.NewSchemaless(
@@ -369,7 +369,7 @@ func (p *Prometheus) initMetricsExporter() *prometheus.Exporter {
 	return exporter
 }
 
-func (p *Prometheus) ExporterHandler() echo.HandlerFunc {
+func (p *OtelMetrics) ExporterHandler() echo.HandlerFunc {
 	p.initMetricsExporter()
 
 	h := promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
