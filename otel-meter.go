@@ -41,13 +41,12 @@ const (
 	unitDimensionless = "1"
 	unitBytes         = "By"
 	unitMilliseconds  = "ms"
+	unitSecond        = "s"
 )
 
-// reqDurBucketsMilliseconds is the buckets for request duration. Here, we use the prometheus defaults
-// which are for ~10s request length max: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
-var reqDurBucketsMilliseconds = []float64{.005 * 1000, .01 * 1000, .025 * 1000, .05 * 1000, .1 * 1000, .25 * 1000, .5 * 1000, 1 * 1000, 2.5 * 1000, 5 * 1000, 10 * 1000}
-
-var reqDurBucketsSeconds = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
+// as https://github.com/open-telemetry/semantic-conventions/blob/main/docs/http/http-metrics.md#metric-httpserverrequestduration spec
+// This metric SHOULD be specified with ExplicitBucketBoundaries of [ 0, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10 ].
+var reqDurBucketsSeconds = []float64{0, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10}
 
 // byteBuckets is the buckets for request/response size. Here we define a spectrom from 1KB thru 1NB up to 10MB.
 var byteBuckets = []float64{1.0 * _KB, 2.0 * _KB, 5.0 * _KB, 10.0 * _KB, 100 * _KB, 500 * _KB, 1.0 * _MB, 2.5 * _MB, 5.0 * _MB, 10.0 * _MB}
@@ -89,9 +88,6 @@ type MiddlewareConfig struct {
 
 	ServiceVersion string
 
-	// run as [echo prometheus middleware](https://github.com/labstack/echo-contrib/blob/master/echoprometheus) compatible mode
-	CompatibleMode bool
-
 	MetricsPath string
 
 	RequestCounterURLLabelMappingFunc  RequestCounterLabelMappingFunc
@@ -112,11 +108,11 @@ type MiddlewareConfig struct {
 
 // Prometheus contains the metrics gathered by the instance and its path
 type Prometheus struct {
-	reqCnt           metric.Int64Counter
-	reqDurCompatible metric.Float64Histogram
-	reqDur           metric.Int64Histogram
-	reqSz, resSz     metric.Int64Histogram
-	router           *echo.Echo
+	reqCnt       metric.Int64Counter
+	reqDur       metric.Float64Histogram
+	reqSz, resSz metric.Int64Histogram
+	reqActive    metric.Int64UpDownCounter
+	router       *echo.Echo
 
 	*MiddlewareConfig
 }
@@ -196,24 +192,13 @@ func NewPrometheus(config MiddlewareConfig) *Prometheus {
 		panic(err)
 	}
 
-	if !p.CompatibleMode {
-		p.reqDur, err = meter.Int64Histogram(
-			"request_duration",
-			metric.WithUnit(unitMilliseconds),
-			metric.WithDescription("The HTTP request latencies in milliseconds."),
-		)
-		if err != nil {
-			panic(err)
-		}
-	} else {
-		p.reqDurCompatible, err = meter.Float64Histogram(
-			"request_duration_seconds",
-			metric.WithUnit("s"),
-			metric.WithDescription("The HTTP request latencies in seconds."),
-		)
-		if err != nil {
-			panic(err)
-		}
+	p.reqDur, err = meter.Float64Histogram(
+		"http.server.request.duration",
+		metric.WithUnit(unitSecond),
+		metric.WithDescription("Measures the duration of inbound HTTP requests."),
+	)
+	if err != nil {
+		panic(err)
 	}
 
 	p.resSz, err = meter.Int64Histogram(
@@ -229,6 +214,13 @@ func NewPrometheus(config MiddlewareConfig) *Prometheus {
 		"request_size",
 		metric.WithUnit(unitBytes),
 		metric.WithDescription("The HTTP request sizes in bytes."),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	p.reqActive, err = meter.Int64UpDownCounter("http.server.active_requests",
+		metric.WithDescription("The current number of active requests."),
 	)
 	if err != nil {
 		panic(err)
@@ -258,10 +250,19 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 			return next(c)
 		}
 
-		start := time.Now()
+		method := attribute.String("http.request.method", c.Request().Method)
+		scheme := attribute.String("url.scheme", c.Scheme())
+		host := p.RequestCounterHostLabelMappingFunc(c)
+		serverAddress := attribute.String("server.address", host)
+		p.reqActive.Add(c.Request().Context(), 1, metric.WithAttributes(method, scheme, serverAddress))
+
 		reqSz := computeApproximateRequestSize(c.Request())
 
+		start := time.Now()
+
 		err := next(c)
+
+		p.reqActive.Add(c.Request().Context(), -1, metric.WithAttributes(method, scheme, serverAddress))
 
 		status := c.Response().Status
 		if err != nil {
@@ -273,49 +274,40 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 				status = http.StatusInternalServerError
 			}
 		}
+		statusCode := attribute.Int("http.response.status_code", status)
 
-		elapsed := time.Since(start) / time.Millisecond
+		elapsedSeconds := float64(int(time.Since(start)/time.Millisecond)) / 1e3
 
-		url := p.RequestCounterURLLabelMappingFunc(c)
-		host := p.RequestCounterHostLabelMappingFunc(c)
+		route := p.RequestCounterURLLabelMappingFunc(c)
+		httpRoute := attribute.String("http.route", route)
 
-		if !p.CompatibleMode {
-			p.reqDur.Record(c.Request().Context(), int64(elapsed), metric.WithAttributes(
-				attribute.Int("code", status),
-				attribute.String("method", c.Request().Method),
-				attribute.String("host", host),
-				attribute.String("url", url)))
-		} else {
-			elapsedSeconds := float64(elapsed) / float64(1000)
-			p.reqDurCompatible.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(
-				attribute.Int("code", status),
-				attribute.String("method", c.Request().Method),
-				attribute.String("host", host),
-				attribute.String("url", url)))
-		}
+		p.reqDur.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(
+			statusCode,
+			method,
+			serverAddress,
+			httpRoute))
 
-		// "code", "method", "host", "url"
 		p.reqCnt.Add(c.Request().Context(), 1,
 			metric.WithAttributes(
-				attribute.Int("code", status),
-				attribute.String("method", c.Request().Method),
-				attribute.String("host", host),
-				attribute.String("url", url)))
+				statusCode,
+				method,
+				serverAddress,
+				httpRoute))
 
 		p.reqSz.Record(c.Request().Context(), int64(reqSz),
 			metric.WithAttributes(
-				attribute.Int("code", status),
-				attribute.String("method", c.Request().Method),
-				attribute.String("host", host),
-				attribute.String("url", url)))
+				statusCode,
+				method,
+				serverAddress,
+				httpRoute))
 
 		resSz := float64(c.Response().Size)
 		p.resSz.Record(c.Request().Context(), int64(resSz),
 			metric.WithAttributes(
-				attribute.Int("code", status),
-				attribute.String("method", c.Request().Method),
-				attribute.String("host", host),
-				attribute.String("url", url)))
+				statusCode,
+				method,
+				serverAddress,
+				httpRoute))
 
 		return err
 	}
@@ -336,28 +328,17 @@ func (p *Prometheus) initMetricsExporter() *prometheus.Exporter {
 		prometheus.WithRegisterer(p.Registerer),
 		prometheus.WithNamespace(serviceName),
 	}
-	if p.CompatibleMode {
-		opts = append(opts, prometheus.WithoutScopeInfo())
-	}
 	exporter, err := prometheus.New(opts...)
 	if err != nil {
 		panic(err)
 	}
 
 	durationBucketsView := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "*_duration_milliseconds"},
+		sdkmetric.Instrument{Name: "*_duration_seconds"},
 		sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
-			Boundaries: reqDurBucketsMilliseconds,
+			Boundaries: reqDurBucketsSeconds,
 		}},
 	)
-	if p.CompatibleMode {
-		durationBucketsView = sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "*_duration_seconds"},
-			sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
-				Boundaries: reqDurBucketsSeconds,
-			}},
-		)
-	}
 
 	reqBytesBucketsView := sdkmetric.NewView(
 		sdkmetric.Instrument{Name: "*request_size"},

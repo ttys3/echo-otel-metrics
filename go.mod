@@ -1,4 +1,4 @@
-module github.com/ttys3/echo-otel-metrics
+module github.com/ttys3/echo-otel-metrics/v2
 
 go 1.20
 
