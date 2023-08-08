@@ -203,7 +203,7 @@ func unregisterDefaults(Namespace string) {
 	})
 	unRegisterCollector(prometheus.Opts{
 		Namespace: Namespace,
-		Name:      "http_server_request_siz",
+		Name:      "http_server_request_size",
 		Help:      "The HTTP request sizes in bytes.",
 	})
 }
