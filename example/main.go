@@ -17,8 +17,9 @@ import (
 
 var serviceName = "otelmetric-demo"
 
+var serviceVersion = "v0.1.0"
+
 func main() {
-	rand.Seed(time.Now().UnixNano())
 	// Echo instance
 	e := echo.New()
 
@@ -27,11 +28,13 @@ func main() {
 	e.Use(middleware.Recover())
 
 	prom := echootelmetrics.New(echootelmetrics.MiddlewareConfig{
-		Subsystem:      serviceName,
+		Namespace:      serviceName,
 		Skipper:        URLSkipper,
 		ServiceVersion: "v0.1.0",
 	})
-	prom.Setup(e)
+	// Enable metrics middleware
+	e.Use(prom.NewMiddleware())
+	e.GET("/metrics", prom.NewHandler())
 
 	// Route => handler
 	e.GET("/", func(c echo.Context) error {

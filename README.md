@@ -32,7 +32,10 @@ import (
 		Skipper:        URLSkipper,
 		ServiceVersion: "v0.1.0",
 	})
-	prom.Setup(e)
+	e := echo.New()
+	// Enable metrics middleware
+	e.Use(prom.NewMiddleware()
+	e.GET("/metrics", prom.NewHandler())
 ```
 
 ## warning
@@ -92,7 +95,7 @@ https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/pkg/
 
 ## docs
 
-the implementation ref to https://github.com/labstack/echo-contrib/blob/master/prometheus/prometheus.go
+the implementation ref to https://github.com/labstack/echo-contrib/blob/master/echoprometheus/prometheus.go
 
 https://uptrace.dev/opentelemetry/go-metrics.html
 

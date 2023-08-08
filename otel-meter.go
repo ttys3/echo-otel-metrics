@@ -21,12 +21,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// Meter can be a global/package variable.
-var meter = otel.GetMeterProvider().Meter("github.com/ttys3/echo-otel-metrics/v2")
-
 var (
-	defaultMetricPath = "/metrics"
-	defaultSubsystem  = "echo"
+	defaultMetricPath      = "/metrics"
+	defaultNamespace       = "echo"
+	instrumentationVersion = "v2.0.0"
 )
 
 const (
@@ -78,17 +76,15 @@ type MiddlewareConfig struct {
 	// Skipper defines a function to skip middleware.
 	Skipper middleware.Skipper
 
-	// Namespace is components of the fully-qualified name of the Metric (created by joining Namespace,Subsystem and Name components with "_")
+	// Namespace is components of the fully-qualified name of the Metric (created by joining Namespace and Name components with "_")
 	// Optional
 	Namespace string
-
-	// Subsystem is components of the fully-qualified name of the Metric (created by joining Namespace,Subsystem and Name components with "_")
-	// Defaults to: "echo"
-	Subsystem string
 
 	ServiceVersion string
 
 	MetricsPath string
+
+	ScopeInfo bool
 
 	RequestCounterURLLabelMappingFunc  RequestCounterLabelMappingFunc
 	RequestCounterHostLabelMappingFunc RequestCounterLabelMappingFunc
@@ -123,8 +119,8 @@ func New(config MiddlewareConfig) *OtelMetrics {
 		config.Skipper = middleware.DefaultSkipper
 	}
 
-	if config.Subsystem == "" {
-		config.Subsystem = defaultSubsystem
+	if config.Namespace == "" {
+		config.Namespace = defaultNamespace
 	}
 
 	if config.MetricsPath == "" {
@@ -161,6 +157,8 @@ func New(config MiddlewareConfig) *OtelMetrics {
 	p := &OtelMetrics{
 		MiddlewareConfig: &config,
 	}
+
+	var meter = otel.GetMeterProvider().Meter("echo-otel-metrics", metric.WithInstrumentationVersion(instrumentationVersion))
 
 	var err error
 	// Standard default metrics
@@ -229,99 +227,90 @@ func New(config MiddlewareConfig) *OtelMetrics {
 	return p
 }
 
-// SetMetricsExporterRoute set metrics paths
-func (p *OtelMetrics) SetMetricsExporterRoute(e *echo.Echo) {
-	e.GET(p.MetricsPath, p.ExporterHandler())
-}
-
-// Setup adds the middleware to the Echo engine.
-func (p *OtelMetrics) Setup(e *echo.Echo) {
-	e.Use(p.HandlerFunc)
-	p.SetMetricsExporterRoute(e)
-}
-
-// HandlerFunc defines handler function for middleware
-func (p *OtelMetrics) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		if c.Path() == p.MetricsPath {
-			return next(c)
-		}
-		if p.Skipper(c) {
-			return next(c)
-		}
-
-		method := attribute.String("http.request.method", c.Request().Method)
-		scheme := attribute.String("url.scheme", c.Scheme())
-		host := p.RequestCounterHostLabelMappingFunc(c)
-		serverAddress := attribute.String("server.address", host)
-		p.reqActive.Add(c.Request().Context(), 1, metric.WithAttributes(method, scheme, serverAddress))
-
-		reqSz := computeApproximateRequestSize(c.Request())
-
-		start := time.Now()
-
-		err := next(c)
-
-		p.reqActive.Add(c.Request().Context(), -1, metric.WithAttributes(method, scheme, serverAddress))
-
-		status := c.Response().Status
-		if err != nil {
-			var httpError *echo.HTTPError
-			if errors.As(err, &httpError) {
-				status = httpError.Code
+// NewMiddleware defines handler function for middleware
+func (p *OtelMetrics) NewMiddleware() echo.MiddlewareFunc {
+	p.initMetricsExporter()
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if c.Path() == p.MetricsPath {
+				return next(c)
 			}
-			if status == 0 || status == http.StatusOK {
-				status = http.StatusInternalServerError
+			if p.Skipper(c) {
+				return next(c)
 			}
+
+			method := attribute.String("http.request.method", c.Request().Method)
+			scheme := attribute.String("url.scheme", c.Scheme())
+			host := p.RequestCounterHostLabelMappingFunc(c)
+			serverAddress := attribute.String("server.address", host)
+			p.reqActive.Add(c.Request().Context(), 1, metric.WithAttributes(method, scheme, serverAddress))
+
+			reqSz := computeApproximateRequestSize(c.Request())
+
+			start := time.Now()
+
+			err := next(c)
+
+			p.reqActive.Add(c.Request().Context(), -1, metric.WithAttributes(method, scheme, serverAddress))
+
+			status := c.Response().Status
+			if err != nil {
+				var httpError *echo.HTTPError
+				if errors.As(err, &httpError) {
+					status = httpError.Code
+				}
+				if status == 0 || status == http.StatusOK {
+					status = http.StatusInternalServerError
+				}
+			}
+			statusCode := attribute.Int("http.response.status_code", status)
+
+			elapsedSeconds := float64(int(time.Since(start)/time.Millisecond)) / 1e3
+
+			route := p.RequestCounterURLLabelMappingFunc(c)
+			httpRoute := attribute.String("http.route", route)
+
+			p.reqDur.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(
+				statusCode,
+				method,
+				serverAddress,
+				httpRoute,
+				scheme))
+
+			p.reqCnt.Add(c.Request().Context(), 1,
+				metric.WithAttributes(
+					statusCode,
+					method,
+					serverAddress,
+					httpRoute,
+					scheme))
+
+			p.reqSz.Record(c.Request().Context(), int64(reqSz),
+				metric.WithAttributes(
+					statusCode,
+					method,
+					serverAddress,
+					httpRoute,
+					scheme))
+
+			resSz := float64(c.Response().Size)
+			p.resSz.Record(c.Request().Context(), int64(resSz),
+				metric.WithAttributes(
+					statusCode,
+					method,
+					serverAddress,
+					httpRoute,
+					scheme))
+
+			return err
 		}
-		statusCode := attribute.Int("http.response.status_code", status)
-
-		elapsedSeconds := float64(int(time.Since(start)/time.Millisecond)) / 1e3
-
-		route := p.RequestCounterURLLabelMappingFunc(c)
-		httpRoute := attribute.String("http.route", route)
-
-		p.reqDur.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(
-			statusCode,
-			method,
-			serverAddress,
-			httpRoute,
-			scheme))
-
-		p.reqCnt.Add(c.Request().Context(), 1,
-			metric.WithAttributes(
-				statusCode,
-				method,
-				serverAddress,
-				httpRoute,
-				scheme))
-
-		p.reqSz.Record(c.Request().Context(), int64(reqSz),
-			metric.WithAttributes(
-				statusCode,
-				method,
-				serverAddress,
-				httpRoute,
-				scheme))
-
-		resSz := float64(c.Response().Size)
-		p.resSz.Record(c.Request().Context(), int64(resSz),
-			metric.WithAttributes(
-				statusCode,
-				method,
-				serverAddress,
-				httpRoute,
-				scheme))
-
-		return err
 	}
 }
 
 func (p *OtelMetrics) initMetricsExporter() *prometheus.Exporter {
-	serviceName := p.Subsystem
 	res, err := resource.Merge(resource.Default(),
 		resource.NewSchemaless(
-			semconv.ServiceName(serviceName),
+			semconv.ServiceName(p.Namespace),
 			semconv.ServiceVersion(p.ServiceVersion),
 		))
 	if err != nil {
@@ -330,7 +319,10 @@ func (p *OtelMetrics) initMetricsExporter() *prometheus.Exporter {
 
 	opts := []prometheus.Option{
 		prometheus.WithRegisterer(p.Registerer),
-		prometheus.WithNamespace(serviceName),
+		prometheus.WithNamespace(p.Namespace),
+	}
+	if !p.ScopeInfo {
+		opts = append(opts, prometheus.WithoutScopeInfo())
 	}
 	exporter, err := prometheus.New(opts...)
 	if err != nil {
@@ -373,9 +365,7 @@ func (p *OtelMetrics) initMetricsExporter() *prometheus.Exporter {
 	return exporter
 }
 
-func (p *OtelMetrics) ExporterHandler() echo.HandlerFunc {
-	p.initMetricsExporter()
-
+func (p *OtelMetrics) NewHandler() echo.HandlerFunc {
 	h := promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
 
 	return func(c echo.Context) error {
