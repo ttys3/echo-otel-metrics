@@ -3,15 +3,15 @@ package echootelmetrics
 
 import (
 	"errors"
-	"go.opentelemetry.io/otel"
 	"net/http"
 	"time"
+
+	"go.opentelemetry.io/otel"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/metric/aggregation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
 
@@ -346,14 +346,14 @@ func (p *Prometheus) initMetricsExporter() *prometheus.Exporter {
 
 	durationBucketsView := sdkmetric.NewView(
 		sdkmetric.Instrument{Name: "*_duration_milliseconds"},
-		sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
+		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 			Boundaries: reqDurBucketsMilliseconds,
 		}},
 	)
 	if p.CompatibleMode {
 		durationBucketsView = sdkmetric.NewView(
 			sdkmetric.Instrument{Name: "*_duration_seconds"},
-			sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 				Boundaries: reqDurBucketsSeconds,
 			}},
 		)
@@ -361,14 +361,14 @@ func (p *Prometheus) initMetricsExporter() *prometheus.Exporter {
 
 	reqBytesBucketsView := sdkmetric.NewView(
 		sdkmetric.Instrument{Name: "*request_size"},
-		sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
+		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 			Boundaries: byteBuckets,
 		}},
 	)
 
 	rspBytesBucketsView := sdkmetric.NewView(
 		sdkmetric.Instrument{Name: "*response_size"},
-		sdkmetric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
+		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 			Boundaries: byteBuckets,
 		}},
 	)
