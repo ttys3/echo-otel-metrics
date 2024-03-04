@@ -324,7 +324,12 @@ func (p *Prometheus) initMetricsMeterProvider() *prometheus.Exporter {
 	}
 
 	durationBucketsView := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "*_duration_seconds"},
+		// TODO: support more views like:
+		// request_duration_seconds
+		// processing_time_seconds
+		// latency_seconds
+		// server_handling_seconds
+		sdkmetric.Instrument{Name: "*request_duration"},
 		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 			Boundaries: reqDurBucketsSeconds,
 		}},
