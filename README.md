@@ -18,18 +18,16 @@ but the metrics name diffs.
 **counter**
 
 ```
-requests_ratio_total
-
-compatible mode: requests_total
+requests_total
 ```
 
 
 **histogram**
 
-```
-request_duration_milliseconds{_bucket, _sum, _count}
+ref https://opentelemetry.io/docs/specs/semconv/http/http-metrics/
 
-compatible mode: request_duration_seconds{_bucket, _sum, _count}
+```
+request_duration_seconds{_bucket, _sum, _count}
 
 request_size_bytes{_bucket, _sum, _count}
 

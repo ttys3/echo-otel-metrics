@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -26,7 +26,6 @@ var meter = otel.GetMeterProvider().Meter("echo")
 
 var (
 	defaultMetricPath = "/metrics"
-	defaultSubsystem  = "echo"
 )
 
 const (
@@ -43,10 +42,7 @@ const (
 	unitMilliseconds  = "ms"
 )
 
-// reqDurBucketsMilliseconds is the buckets for request duration. Here, we use the prometheus defaults
-// which are for ~10s request length max: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
-var reqDurBucketsMilliseconds = []float64{.005 * 1000, .01 * 1000, .025 * 1000, .05 * 1000, .1 * 1000, .25 * 1000, .5 * 1000, 1 * 1000, 2.5 * 1000, 5 * 1000, 10 * 1000}
-
+// reqDurBucketsSeconds is the buckets for request duration. Here, we use the prometheus defaults
 var reqDurBucketsSeconds = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
 
 // byteBuckets is the buckets for request/response size. Here we define a spectrom from 1KB thru 1NB up to 10MB.
@@ -79,23 +75,21 @@ type MiddlewareConfig struct {
 	// Skipper defines a function to skip middleware.
 	Skipper middleware.Skipper
 
-	// Namespace is components of the fully-qualified name of the Metric (created by joining Namespace,Subsystem and Name components with "_")
-	// Optional
-	Namespace string
-
-	// Subsystem is components of the fully-qualified name of the Metric (created by joining Namespace,Subsystem and Name components with "_")
-	// Defaults to: "echo"
-	Subsystem string
-
+	ServiceName    string
 	ServiceVersion string
 
-	// run as [echo prometheus middleware](https://github.com/labstack/echo-contrib/blob/master/echoprometheus) compatible mode
-	CompatibleMode bool
+	// Namespace is components of the fully-qualified name of the Metric (created by joining Namespace,Subsystem and Name components with "_")
+	// this will take from ServiceName if not set
+	// Optional
+	Namespace string
 
 	MetricsPath string
 
 	RequestCounterURLLabelMappingFunc  RequestCounterLabelMappingFunc
 	RequestCounterHostLabelMappingFunc RequestCounterLabelMappingFunc
+
+	// if enabled, it will add the scope information (otel_scope_name="otelmetric-demo",otel_scope_version="") to every metrics
+	WithScopeInfo bool
 
 	// Registry is the prometheus registry that will be used as the default Registerer and
 	// Gatherer if these are not specified.
@@ -112,11 +106,10 @@ type MiddlewareConfig struct {
 
 // Prometheus contains the metrics gathered by the instance and its path
 type Prometheus struct {
-	reqCnt           metric.Int64Counter
-	reqDurCompatible metric.Float64Histogram
-	reqDur           metric.Int64Histogram
-	reqSz, resSz     metric.Int64Histogram
-	router           *echo.Echo
+	reqCnt       metric.Int64Counter
+	reqDur       metric.Float64Histogram
+	reqSz, resSz metric.Int64Histogram
+	router       *echo.Echo
 
 	*MiddlewareConfig
 }
@@ -125,10 +118,6 @@ type Prometheus struct {
 func NewPrometheus(config MiddlewareConfig) *Prometheus {
 	if config.Skipper == nil {
 		config.Skipper = middleware.DefaultSkipper
-	}
-
-	if config.Subsystem == "" {
-		config.Subsystem = defaultSubsystem
 	}
 
 	if config.MetricsPath == "" {
@@ -191,29 +180,17 @@ func NewPrometheus(config MiddlewareConfig) *Prometheus {
 		// or hack: do not set unit for counter to avoid the `_ratio` suffix
 		metric.WithDescription("How many HTTP requests processed, partitioned by status code and HTTP method."),
 	)
-
 	if err != nil {
 		panic(err)
 	}
 
-	if !p.CompatibleMode {
-		p.reqDur, err = meter.Int64Histogram(
-			"request_duration",
-			metric.WithUnit(unitMilliseconds),
-			metric.WithDescription("The HTTP request latencies in milliseconds."),
-		)
-		if err != nil {
-			panic(err)
-		}
-	} else {
-		p.reqDurCompatible, err = meter.Float64Histogram(
-			"request_duration_seconds",
-			metric.WithUnit("s"),
-			metric.WithDescription("The HTTP request latencies in seconds."),
-		)
-		if err != nil {
-			panic(err)
-		}
+	p.reqDur, err = meter.Float64Histogram(
+		"request_duration",
+		metric.WithUnit("s"),
+		metric.WithDescription("The HTTP request latencies in seconds."),
+	)
+	if err != nil {
+		panic(err)
 	}
 
 	p.resSz, err = meter.Int64Histogram(
@@ -279,20 +256,12 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 		url := p.RequestCounterURLLabelMappingFunc(c)
 		host := p.RequestCounterHostLabelMappingFunc(c)
 
-		if !p.CompatibleMode {
-			p.reqDur.Record(c.Request().Context(), int64(elapsed), metric.WithAttributes(
-				attribute.Int("code", status),
-				attribute.String("method", c.Request().Method),
-				attribute.String("host", host),
-				attribute.String("url", url)))
-		} else {
-			elapsedSeconds := float64(elapsed) / float64(1000)
-			p.reqDurCompatible.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(
-				attribute.Int("code", status),
-				attribute.String("method", c.Request().Method),
-				attribute.String("host", host),
-				attribute.String("url", url)))
-		}
+		elapsedSeconds := float64(elapsed) / float64(1000)
+		p.reqDur.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(
+			attribute.Int("code", status),
+			attribute.String("method", c.Request().Method),
+			attribute.String("host", host),
+			attribute.String("url", url)))
 
 		// "code", "method", "host", "url"
 		p.reqCnt.Add(c.Request().Context(), 1,
@@ -322,21 +291,27 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func (p *Prometheus) initMetricsExporter() *prometheus.Exporter {
-	serviceName := p.Subsystem
 	res, err := resource.Merge(resource.Default(),
 		resource.NewSchemaless(
-			semconv.ServiceName(serviceName),
+			semconv.ServiceName(p.ServiceName),
 			semconv.ServiceVersion(p.ServiceVersion),
 		))
 	if err != nil {
 		panic(err)
 	}
 
+	namespace := p.Namespace
+	if namespace == "" {
+		namespace = p.ServiceName
+	}
 	opts := []prometheus.Option{
 		prometheus.WithRegisterer(p.Registerer),
-		prometheus.WithNamespace(serviceName),
 	}
-	if p.CompatibleMode {
+	if namespace != "" {
+		opts = append(opts, prometheus.WithNamespace(namespace))
+
+	}
+	if !p.WithScopeInfo {
 		opts = append(opts, prometheus.WithoutScopeInfo())
 	}
 	exporter, err := prometheus.New(opts...)
@@ -345,19 +320,11 @@ func (p *Prometheus) initMetricsExporter() *prometheus.Exporter {
 	}
 
 	durationBucketsView := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "*_duration_milliseconds"},
+		sdkmetric.Instrument{Name: "*_duration_seconds"},
 		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-			Boundaries: reqDurBucketsMilliseconds,
+			Boundaries: reqDurBucketsSeconds,
 		}},
 	)
-	if p.CompatibleMode {
-		durationBucketsView = sdkmetric.NewView(
-			sdkmetric.Instrument{Name: "*_duration_seconds"},
-			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: reqDurBucketsSeconds,
-			}},
-		)
-	}
 
 	reqBytesBucketsView := sdkmetric.NewView(
 		sdkmetric.Instrument{Name: "*request_size"},

@@ -19,7 +19,7 @@ func TestCompModeCustomRegistryMetricsDoNotRecord404Route(t *testing.T) {
 
 	customRegistry := prometheus.NewRegistry()
 
-	prom := NewPrometheus(MiddlewareConfig{Registry: customRegistry, CompatibleMode: true})
+	prom := NewPrometheus(MiddlewareConfig{Registry: customRegistry})
 	e.Use(prom.HandlerFunc)
 	e.GET("/metrics", prom.ExporterHandler())
 
@@ -35,7 +35,7 @@ func TestNonCompModeCustomRegistryMetricsDoNotRecord404Route(t *testing.T) {
 
 	customRegistry := prometheus.NewRegistry()
 
-	prom := NewPrometheus(MiddlewareConfig{Registry: customRegistry, CompatibleMode: false})
+	prom := NewPrometheus(MiddlewareConfig{Registry: customRegistry, WithScopeInfo: true})
 	e.Use(prom.HandlerFunc)
 	e.GET("/metrics", prom.ExporterHandler())
 
@@ -49,7 +49,7 @@ func TestNonCompModeCustomRegistryMetricsDoNotRecord404Route(t *testing.T) {
 func TestDefaultRegistryMetrics(t *testing.T) {
 	e := echo.New()
 
-	prom := NewPrometheus(MiddlewareConfig{CompatibleMode: true, Subsystem: "myapp"})
+	prom := NewPrometheus(MiddlewareConfig{ServiceName: "myapp"})
 	e.Use(prom.HandlerFunc)
 	e.GET("/metrics", prom.ExporterHandler())
 
@@ -66,7 +66,7 @@ func TestPrometheus_Buckets(t *testing.T) {
 
 	customRegistry := prometheus.NewRegistry()
 
-	prom := NewPrometheus(MiddlewareConfig{CompatibleMode: true, Registry: customRegistry})
+	prom := NewPrometheus(MiddlewareConfig{Registry: customRegistry})
 	e.Use(prom.HandlerFunc)
 	e.GET("/metrics", prom.ExporterHandler())
 
@@ -88,8 +88,7 @@ func TestMiddlewareConfig_Skipper(t *testing.T) {
 	customRegistry := prometheus.NewRegistry()
 
 	prom := NewPrometheus(MiddlewareConfig{
-		CompatibleMode: true,
-		Registry:       customRegistry,
+		Registry: customRegistry,
 		Skipper: func(c echo.Context) bool {
 			hasSuffix := strings.HasSuffix(c.Path(), "ignore")
 			return hasSuffix
@@ -121,9 +120,8 @@ func TestMetricsForErrors(t *testing.T) {
 	e := echo.New()
 	customRegistry := prometheus.NewRegistry()
 	prom := NewPrometheus(MiddlewareConfig{
-		CompatibleMode: true,
-		Subsystem:      "myapp",
-		Registry:       customRegistry,
+		ServiceName: "myapp",
+		Registry:    customRegistry,
 		Skipper: func(c echo.Context) bool {
 			hasSuffix := strings.HasSuffix(c.Path(), "ignore")
 			return hasSuffix
