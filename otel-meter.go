@@ -4,6 +4,7 @@ package echootelmetrics
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -210,6 +211,7 @@ func NewPrometheus(config MiddlewareConfig) *Prometheus {
 		panic(err)
 	}
 
+	p.initMetricsMeterProvider()
 	return p
 }
 
@@ -289,26 +291,29 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-func (p *Prometheus) initMetricsExporter() *prometheus.Exporter {
+func (p *Prometheus) initMetricsMeterProvider() *prometheus.Exporter {
+	namespace := p.Namespace
+	if namespace == "" {
+		namespace = p.ServiceName
+	}
+	namespace = strings.ReplaceAll(namespace, "-", "_")
+
+	opts := []prometheus.Option{
+		prometheus.WithRegisterer(p.Registerer),
+	}
+
 	res, err := resource.Merge(resource.Default(),
 		resource.NewSchemaless(
 			semconv.ServiceName(p.ServiceName),
 			semconv.ServiceVersion(p.ServiceVersion),
+			semconv.ServiceNamespace(p.Namespace),
 		))
 	if err != nil {
 		panic(err)
 	}
 
-	namespace := p.Namespace
-	if namespace == "" {
-		namespace = p.ServiceName
-	}
-	opts := []prometheus.Option{
-		prometheus.WithRegisterer(p.Registerer),
-	}
 	if namespace != "" {
 		opts = append(opts, prometheus.WithNamespace(namespace))
-
 	}
 	if !p.WithScopeInfo {
 		opts = append(opts, prometheus.WithoutScopeInfo())
@@ -355,8 +360,6 @@ func (p *Prometheus) initMetricsExporter() *prometheus.Exporter {
 }
 
 func (p *Prometheus) ExporterHandler() echo.HandlerFunc {
-	p.initMetricsExporter()
-
 	h := promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
 
 	return func(c echo.Context) error {
