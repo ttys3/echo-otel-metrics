@@ -14,3 +14,7 @@ var demoCounter, _ = Meter.Int64Counter(
 	"foobar",
 	metric.WithDescription("Just a test counter"),
 )
+
+var execCostTimeHistogram, _ = Meter.Float64Histogram("my.exec.cost", metric.WithUnit("s"), metric.WithDescription("exec time cost in seconds"))
+
+var longExecCostTimeHistogram, _ = Meter.Float64Histogram("my.long_exec.cost", metric.WithUnit("s"), metric.WithDescription("exec time cost in seconds for long running tasks"))

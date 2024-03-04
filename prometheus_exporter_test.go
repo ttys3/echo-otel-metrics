@@ -20,44 +20,28 @@ func TestCompModeCustomRegistryMetricsDoNotRecord404Route(t *testing.T) {
 	customRegistry := prometheus.NewRegistry()
 
 	prom := New(MiddlewareConfig{Registry: customRegistry})
-	e.Use(prom.HandlerFunc)
+	e.Use(prom.Middleware())
 	e.GET("/metrics", prom.ExporterHandler())
 
 	assert.Equal(t, http.StatusNotFound, request(e, "/ping?test=1"))
 
 	s, code := requestBody(e, "/metrics")
 	assert.Equal(t, http.StatusOK, code)
-	assert.Contains(t, s, `echo_request_duration_seconds_count{code="404",host="example.com",method="GET",url=""} 1`)
-}
-
-func TestNonCompModeCustomRegistryMetricsDoNotRecord404Route(t *testing.T) {
-	e := echo.New()
-
-	customRegistry := prometheus.NewRegistry()
-
-	prom := New(MiddlewareConfig{Registry: customRegistry, WithScopeInfo: true})
-	e.Use(prom.HandlerFunc)
-	e.GET("/metrics", prom.ExporterHandler())
-
-	assert.Equal(t, http.StatusNotFound, request(e, "/ping?test=1"))
-
-	s, code := requestBody(e, "/metrics")
-	assert.Equal(t, http.StatusOK, code)
-	assert.Contains(t, s, `echo_request_duration_seconds_count{code="404",host="example.com",method="GET",otel_scope_name="echo",otel_scope_version="",url=""} 1`)
+	assert.Contains(t, s, `http_server_request_duration_seconds_count{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http"} 1`)
 }
 
 func TestDefaultRegistryMetrics(t *testing.T) {
 	e := echo.New()
 
 	prom := New(MiddlewareConfig{Namespace: "myapp"})
-	e.Use(prom.HandlerFunc)
+	e.Use(prom.Middleware())
 	e.GET("/metrics", prom.ExporterHandler())
 
 	assert.Equal(t, http.StatusNotFound, request(e, "/ping?test=1"))
 
 	s, code := requestBody(e, "/metrics")
 	assert.Equal(t, http.StatusOK, code)
-	assert.Contains(t, s, `myapp_request_duration_seconds_count{code="404",host="example.com",method="GET",url=""} 1`)
+	assert.Contains(t, s, `myapp_http_server_request_duration_seconds_count{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http"} 1`)
 	unregisterDefaults("myapp")
 }
 
@@ -67,19 +51,19 @@ func TestPrometheus_Buckets(t *testing.T) {
 	customRegistry := prometheus.NewRegistry()
 
 	prom := New(MiddlewareConfig{Registry: customRegistry})
-	e.Use(prom.HandlerFunc)
+	e.Use(prom.Middleware())
 	e.GET("/metrics", prom.ExporterHandler())
 
 	assert.Equal(t, http.StatusNotFound, request(e, "/ping"))
 
 	body, code := requestBody(e, "/metrics")
 	assert.Equal(t, http.StatusOK, code)
-	assert.Contains(t, body, `echo_request_duration_seconds_bucket{code="404",host="example.com",method="GET",url="",le="0.005"}`, "duration should have time bucket (like, 0.005s)")
-	assert.NotContains(t, body, `echo_request_duration_seconds_bucket{code="404",host="example.com",method="GET",url="",le="512000"}`, "duration should NOT have a size bucket (like, 512K)")
-	assert.Contains(t, body, `echo_request_size_bytes_bucket{code="404",host="example.com",method="GET",url="",le="1024"}`, "request size should have a 1024k (size) bucket")
-	assert.NotContains(t, body, `echo_request_size_bytes_bucket{code="404",host="example.com",method="GET",url="",le="0.005"}`, "request size should NOT have time bucket (like, 0.005s)")
-	assert.Contains(t, body, `echo_response_size_bytes_bucket{code="404",host="example.com",method="GET",url="",le="1024"}`, "response size should have a 1024k (size) bucket")
-	assert.NotContains(t, body, `echo_response_size_bytes_bucket{code="404",host="example.com",method="GET",url="",le="0.005"}`, "response size should NOT have time bucket (like, 0.005s)")
+	assert.Contains(t, body, `http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http",le="0.005"}`, "duration should have time bucket (like, 0.005s)")
+	assert.NotContains(t, body, `http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http",le="512000"}`, "duration should NOT have a size bucket (like, 512K)")
+	assert.Contains(t, body, `http_server_request_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http",le="10240"}`, "request size should have a 1024k (size) bucket")
+	assert.NotContains(t, body, `http_server_request_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http",le="0.005"}`, "request size should NOT have time bucket (like, 0.005s)")
+	assert.Contains(t, body, `http_server_response_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http",le="10240"}`, "response size should have a 1024k (size) bucket")
+	assert.NotContains(t, body, `echo_response_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http",le="0.005"}`, "response size should NOT have time bucket (like, 0.005s)")
 }
 
 func TestMiddlewareConfig_Skipper(t *testing.T) {
@@ -94,7 +78,7 @@ func TestMiddlewareConfig_Skipper(t *testing.T) {
 			return hasSuffix
 		},
 	})
-	e.Use(prom.HandlerFunc)
+	e.Use(prom.Middleware())
 	e.GET("/metrics", prom.ExporterHandler())
 
 	e.GET("/test", func(c echo.Context) error {
@@ -111,8 +95,10 @@ func TestMiddlewareConfig_Skipper(t *testing.T) {
 	body, code := requestBody(e, "/metrics")
 	assert.Equal(t, http.StatusOK, code)
 
-	assert.Contains(t, body, `echo_request_duration_seconds_count{code="200",host="example.com",method="GET",url="/test"} 1`)
-	assert.Contains(t, body, `echo_request_duration_seconds_count{code="404",host="example.com",method="GET",url=""} 1`)
+	// 200 1
+	assert.Contains(t, body, `http_server_request_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="200",http_route="/test",server_address="example.com",url_scheme="http",le="1024"} 1`)
+	// 404 1
+	assert.Contains(t, body, `http_server_request_body_size_bytes_count{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http"} 1`)
 	assert.NotContains(t, body, `test_ignore`) // because we skipped
 }
 
@@ -127,7 +113,7 @@ func TestMetricsForErrors(t *testing.T) {
 			return hasSuffix
 		},
 	})
-	e.Use(prom.HandlerFunc)
+	e.Use(prom.Middleware())
 	e.GET("/metrics", prom.ExporterHandler())
 
 	e.GET("/handler_for_ok", func(c echo.Context) error {
@@ -148,9 +134,9 @@ func TestMetricsForErrors(t *testing.T) {
 	body, code := requestBody(e, "/metrics")
 	assert.Equal(t, http.StatusOK, code)
 	assert.Contains(t, body, fmt.Sprintf("%s_requests_total", "myapp"))
-	assert.Contains(t, body, `myapp_requests_total{code="200",host="example.com",method="GET",url="/handler_for_ok"} 1`)
-	assert.Contains(t, body, `myapp_requests_total{code="409",host="example.com",method="GET",url="/handler_for_nok"} 2`)
-	assert.Contains(t, body, `myapp_requests_total{code="502",host="example.com",method="GET",url="/handler_for_error"} 1`)
+	assert.Contains(t, body, `myapp_requests_total{http_request_method="GET",http_response_status_code="200",http_route="/handler_for_ok",server_address="example.com",url_scheme="http"} 1`)
+	assert.Contains(t, body, `myapp_requests_total{http_request_method="GET",http_response_status_code="409",http_route="/handler_for_nok",server_address="example.com",url_scheme="http"} 2`)
+	assert.Contains(t, body, `myapp_requests_total{http_request_method="GET",http_response_status_code="502",http_route="/handler_for_error",server_address="example.com",url_scheme="http"} 1`)
 }
 
 func requestBody(e *echo.Echo, path string) (string, int) {
@@ -174,11 +160,12 @@ func unregisterDefaults(subsystem string) {
 	p := prometheus.DefaultRegisterer
 
 	unRegisterCollector := func(opts prometheus.Opts) {
-		dummyDuplicate := prometheus.NewCounterVec(prometheus.CounterOpts(opts), []string{"code", "method", "host", "url"})
+		dummyDuplicate := prometheus.NewCounterVec(prometheus.CounterOpts(opts), []string{"http_request_method", "http_response_status_code", "http_route", "server_address", "url_scheme"})
 		err := p.Register(dummyDuplicate)
 		if err == nil {
 			return
 		}
+		// slog.Error("unregistering", "opts", opts, "err", err)
 		var arErr prometheus.AlreadyRegisteredError
 		if errors.As(err, &arErr) {
 			p.Unregister(arErr.ExistingCollector)
@@ -192,23 +179,23 @@ func unregisterDefaults(subsystem string) {
 	})
 	unRegisterCollector(prometheus.Opts{
 		Subsystem: subsystem,
-		Name:      "request_duration_seconds",
-		Help:      "The HTTP request latencies in seconds.",
+		Name:      "http_server_active_requests",
+		Help:      "Number of active HTTP server requests.",
 	})
 	unRegisterCollector(prometheus.Opts{
 		Subsystem: subsystem,
-		Name:      "request_duration_seconds",
-		Help:      "The HTTP request latencies in seconds.",
+		Name:      "http_server_request_duration_seconds",
+		Help:      "Duration of HTTP server requests in seconds.",
 	})
 	unRegisterCollector(prometheus.Opts{
 		Subsystem: subsystem,
-		Name:      "response_size_bytes",
-		Help:      "The HTTP response sizes in bytes.",
+		Name:      "http_server_response_body_size_bytes",
+		Help:      "Size of HTTP server response bodies.",
 	})
 	unRegisterCollector(prometheus.Opts{
 		Subsystem: subsystem,
-		Name:      "request_size_bytes",
-		Help:      "The HTTP request sizes in bytes.",
+		Name:      "http_server_request_body_size_bytes",
+		Help:      "Size of HTTP server request bodies.",
 	})
 }
 

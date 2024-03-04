@@ -3,6 +3,7 @@ package echootelmetrics
 
 import (
 	"errors"
+	"go.opentelemetry.io/otel/attribute"
 	"net/http"
 	"strings"
 	"time"
@@ -26,10 +27,6 @@ var meter = otel.GetMeterProvider().Meter("echo")
 
 var (
 	defaultMetricPath = "/metrics"
-)
-
-const (
-	defaultSubsystem = "echo"
 )
 
 const (
@@ -160,10 +157,6 @@ func New(config MiddlewareConfig) *Metrics {
 		}
 	}
 
-	if config.Namespace == "" {
-		config.Namespace = defaultSubsystem
-	}
-
 	p := &Metrics{
 		MiddlewareConfig: &config,
 	}
@@ -203,7 +196,7 @@ func New(config MiddlewareConfig) *Metrics {
 	)
 
 	p.reqDuration, err = meter.Float64Histogram(
-		"http.server.request.duration",
+		MetricHTTPServerRequestDuration,
 		metric.WithUnit("s"),
 		metric.WithDescription("Duration of HTTP server requests in seconds."),
 	)
@@ -233,19 +226,12 @@ func New(config MiddlewareConfig) *Metrics {
 	return p
 }
 
-// SetMetricsExporterRoute set metrics paths
-func (p *Metrics) SetMetricsExporterRoute(e *echo.Echo) {
-	e.GET(p.MetricsPath, p.ExporterHandler())
-}
-
-// Setup adds the middleware to the Echo engine.
-func (p *Metrics) Setup(e *echo.Echo) {
-	e.Use(p.HandlerFunc)
-	p.SetMetricsExporterRoute(e)
+func (p *Metrics) Middleware() echo.MiddlewareFunc {
+	return p.handlerFunc
 }
 
 // HandlerFunc defines handler function for middleware
-func (p *Metrics) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
+func (p *Metrics) handlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		if c.Path() == p.MetricsPath {
 			return next(c)
@@ -279,37 +265,26 @@ func (p *Metrics) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 		url := p.RequestCounterURLLabelMappingFunc(c)
 
 		elapsedSeconds := float64(elapsed) / float64(1000)
-		p.reqDuration.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(
+
+		commonAttributes := []attribute.KeyValue{
 			URLScheme.String(c.Scheme()),
 			HttpResponseStatusCode.Int(status),
 			HttpRequestMethod.String(c.Request().Method),
 			ServerAddress.String(host),
-			HttpRoute.String(url)))
+			HttpRoute.String(url),
+		}
+
+		p.reqDuration.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(commonAttributes...))
 
 		p.requests.Add(c.Request().Context(), 1,
-			metric.WithAttributes(
-				URLScheme.String(c.Scheme()),
-				HttpResponseStatusCode.Int(status),
-				HttpRequestMethod.String(c.Request().Method),
-				ServerAddress.String(host),
-				HttpRoute.String(url)))
+			metric.WithAttributes(commonAttributes...))
 
 		p.reqSize.Record(c.Request().Context(), int64(reqSz),
-			metric.WithAttributes(
-				URLScheme.String(c.Scheme()),
-				HttpResponseStatusCode.Int(status),
-				HttpRequestMethod.String(c.Request().Method),
-				ServerAddress.String(host),
-				HttpRoute.String(url)))
+			metric.WithAttributes(commonAttributes...))
 
 		resSz := float64(c.Response().Size)
 		p.resSize.Record(c.Request().Context(), int64(resSz),
-			metric.WithAttributes(
-				URLScheme.String(c.Scheme()),
-				HttpResponseStatusCode.Int(status),
-				HttpRequestMethod.String(c.Request().Method),
-				ServerAddress.String(host),
-				HttpRoute.String(url)))
+			metric.WithAttributes(commonAttributes...))
 
 		p.activeRequests.Add(c.Request().Context(), -1,
 			metric.WithAttributes(HttpRequestMethod.String(c.Request().Method), ServerAddress.String(host), URLScheme.String(c.Scheme())))
@@ -398,7 +373,11 @@ func (p *Metrics) initMetricsMeterProvider() *prometheus.Exporter {
 }
 
 func (p *Metrics) ExporterHandler() echo.HandlerFunc {
-	h := promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
+	opts := promhttp.HandlerOpts{}
+	if p.Registry != nil {
+		opts.Registry = p.Registry
+	}
+	h := promhttp.HandlerFor(p.Gatherer, opts)
 
 	return func(c echo.Context) error {
 		h.ServeHTTP(c.Response(), c.Request())

@@ -43,7 +43,8 @@ func main() {
 	e.Use(middleware.Recover())
 
 	prom := echootelmetrics.New(echootelmetrics.MiddlewareConfig{ServiceName: serviceName, ServiceVersion: "v0.1.0", Skipper: URLSkipper})
-	prom.Setup(e)
+	e.Use(prom.Middleware())
+	e.GET("/metrics", prom.ExporterHandler())
 
 	// Route => handler
 	e.GET("/", func(c echo.Context) error {
@@ -52,6 +53,9 @@ func main() {
 		demoCounter.Add(c.Request().Context(), 10, metric.WithAttributes(attribute.String("hello", "world")))
 		demoCounter.Add(c.Request().Context(), 2, metric.WithAttributes(attribute.String("foo", "bar"), attribute.String("hello", "world")))
 		time.Sleep(durationArray[rand.Int63n(int64(len(durationArray)-1))])
+
+		execCostTimeHistogram.Record(c.Request().Context(), float64(rand.Intn(1000*5)/1000), metric.WithAttributes(attribute.String("exec_type", "xx_normal")))
+		longExecCostTimeHistogram.Record(c.Request().Context(), float64(rand.Intn(1000*240)/1000), metric.WithAttributes(attribute.String("exec_type", "xx_long")))
 		return c.String(http.StatusOK, strings.Repeat("Hello, World!\n", rand.Intn(1024*5)/len("Hello, World!\n")))
 	})
 
