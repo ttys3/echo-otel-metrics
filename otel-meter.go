@@ -27,10 +27,6 @@ import (
 // Meter can be a global/package variable.
 var meter = otel.GetMeterProvider().Meter("echo")
 
-var (
-	defaultMetricPath = "/metrics"
-)
-
 const (
 	_           = iota // ignore first value by assigning to blank identifier
 	_KB float64 = 1 << (10 * iota)
@@ -88,7 +84,7 @@ type MiddlewareConfig struct {
 	// Optional
 	Namespace string
 
-	MetricsPath string
+	EnableServerAddrPort bool
 
 	RequestCounterURLLabelMappingFunc  RequestCounterLabelMappingFunc
 	RequestCounterHostLabelMappingFunc func(c echo.Context) (string, int)
@@ -127,10 +123,6 @@ type Metrics struct {
 func New(config MiddlewareConfig) *Metrics {
 	if config.Skipper == nil {
 		config.Skipper = middleware.DefaultSkipper
-	}
-
-	if config.MetricsPath == "" {
-		config.MetricsPath = defaultMetricPath
 	}
 
 	if config.Registry != nil {
@@ -243,9 +235,6 @@ func (p *Metrics) Middleware() echo.MiddlewareFunc {
 // HandlerFunc defines handler function for middleware
 func (p *Metrics) handlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if c.Path() == p.MetricsPath {
-			return next(c)
-		}
 		if p.Skipper(c) {
 			return next(c)
 		}
@@ -283,11 +272,13 @@ func (p *Metrics) handlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 			HttpRoute.String(url),
 		}
 
-		if host != "" {
-			commonAttributes = append(commonAttributes, ServerAddress.String(host))
-		}
-		if port != 0 {
-			commonAttributes = append(commonAttributes, ServerPort.Int(port))
+		if p.EnableServerAddrPort {
+			if host != "" {
+				commonAttributes = append(commonAttributes, ServerAddress.String(host))
+			}
+			if port != 0 {
+				commonAttributes = append(commonAttributes, ServerPort.Int(port))
+			}
 		}
 
 		p.reqDuration.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(commonAttributes...))
