@@ -1,18 +1,17 @@
 package main
 
 import (
-	"go.opentelemetry.io/otel/metric"
 	"log"
 	"math/rand"
 	"net/http"
 	"strings"
 	"time"
+	// required for pprof
+	_ "net/http/pprof"
 
-	"go.opentelemetry.io/otel/attribute"
-
+	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/ttys3/echo-otel-metrics"
 )
 
 var serviceName = "otelmetric-demo"
@@ -40,18 +39,22 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
-	prom := echootelmetrics.NewPrometheus(echootelmetrics.MiddlewareConfig{ServiceName: serviceName, ServiceVersion: "v0.1.0", Skipper: URLSkipper})
-	prom.Setup(e)
+	e.Use(echoprometheus.NewMiddleware("myapp"))   // register middleware to gather metrics from requests
+	e.GET("/metrics", echoprometheus.NewHandler()) // register route to serve gathered metrics in Prometheus format
 
 	// Route => handler
 	e.GET("/", func(c echo.Context) error {
 		// Increment the counter.
-		demoCounter.Add(c.Request().Context(), 1, metric.WithAttributes(attribute.String("foo", "bar")))
-		demoCounter.Add(c.Request().Context(), 10, metric.WithAttributes(attribute.String("hello", "world")))
-		demoCounter.Add(c.Request().Context(), 2, metric.WithAttributes(attribute.String("foo", "bar"), attribute.String("hello", "world")))
+		demoCounter.WithLabelValues("foo", "bar").Inc()
+		demoCounter.WithLabelValues(c.Request().Header.Get("X-B3-Traceid"), "world").Add(10)
+		demoCounter.WithLabelValues("foo", "bar").Add(2)
 		time.Sleep(durationArray[rand.Int63n(int64(len(durationArray)-1))])
 		return c.String(http.StatusOK, strings.Repeat("Hello, World!\n", rand.Intn(1024*5)/len("Hello, World!\n")))
 	})
+
+	e.GET("/memory-test", memoryTestHandler)
+
+	e.GET("/debug/pprof/*", echo.WrapHandler(http.DefaultServeMux))
 
 	// Start server
 	log.Printf("view metrics at http://localhost:1323/metrics")
@@ -66,4 +69,12 @@ func URLSkipper(c echo.Context) bool {
 	}
 
 	return false
+}
+
+func memoryTestHandler(c echo.Context) error {
+	// Increment the counter.
+	demoCounter.WithLabelValues("foo", "bar").Inc()
+	demoCounter.WithLabelValues(strings.Repeat(c.Request().Header.Get("X-B3-Traceid"), 1024), "world").Add(10)
+	demoCounter.WithLabelValues("foo", "bar").Add(2)
+	return c.String(http.StatusOK, strings.Repeat("Hello, World!\n", rand.Intn(1024*5)/len("Hello, World!\n")))
 }
