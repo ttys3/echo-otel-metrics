@@ -124,17 +124,16 @@ func NewPrometheus(config MiddlewareConfig) *Prometheus {
 		config.MetricsPath = defaultMetricPath
 	}
 
-	registry := realprometheus.NewRegistry()
-
-	if config.Registry == nil {
-		config.Registry = registry
+	if config.Registry != nil {
+		config.Registerer = config.Registry
+		config.Gatherer = config.Registry
 	}
 
 	if config.Registerer == nil {
-		config.Registerer = registry
+		config.Registerer = realprometheus.DefaultRegisterer
 	}
 	if config.Gatherer == nil {
-		config.Gatherer = registry
+		config.Gatherer = realprometheus.DefaultGatherer
 	}
 
 	if config.RequestCounterURLLabelMappingFunc == nil {
