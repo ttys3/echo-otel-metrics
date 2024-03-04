@@ -1,4 +1,4 @@
-// Package otelmetric provides middleware to add opentelemetry metrics and Prometheus exporter.
+// Package otelmetric provides middleware to add opentelemetry metrics and Metrics exporter.
 package echootelmetrics
 
 import (
@@ -9,7 +9,6 @@ import (
 
 	"go.opentelemetry.io/otel"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -49,6 +48,8 @@ const (
 
 // reqDurBucketsSeconds is the buckets for request duration. Here, we use the prometheus defaults
 var reqDurBucketsSeconds = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
+
+var longExecBucketsSeconds = []float64{0.5, 1.0, 1.5, 2.5, 5.0, 10.0, 15.0, 25.0, 40.0, 60, 90, 120, 150, 200, 250, 300}
 
 // byteBuckets is the buckets for request/response size. Here we define a spectrom from 1KB thru 1NB up to 10MB.
 var byteBuckets = []float64{1.0 * _KB, 2.0 * _KB, 5.0 * _KB, 10.0 * _KB, 100 * _KB, 500 * _KB, 1.0 * _MB, 2.5 * _MB, 5.0 * _MB, 10.0 * _MB}
@@ -109,18 +110,22 @@ type MiddlewareConfig struct {
 	Gatherer realprometheus.Gatherer
 }
 
-// Prometheus contains the metrics gathered by the instance and its path
-type Prometheus struct {
-	reqCnt       metric.Int64Counter
-	reqDur       metric.Float64Histogram
-	reqSz, resSz metric.Int64Histogram
-	router       *echo.Echo
+// Metrics contains the metrics gathered by the instance and its path
+type Metrics struct {
+	requests       metric.Int64Counter
+	activeRequests metric.Int64UpDownCounter
+
+	reqDuration metric.Float64Histogram
+	reqSize     metric.Int64Histogram
+	resSize     metric.Int64Histogram
+
+	router *echo.Echo
 
 	*MiddlewareConfig
 }
 
-// NewPrometheus generates a new set of metrics with a certain subsystem name
-func NewPrometheus(config MiddlewareConfig) *Prometheus {
+// New generates a new set of metrics with a certain subsystem name
+func New(config MiddlewareConfig) *Metrics {
 	if config.Skipper == nil {
 		config.Skipper = middleware.DefaultSkipper
 	}
@@ -159,13 +164,13 @@ func NewPrometheus(config MiddlewareConfig) *Prometheus {
 		config.Namespace = defaultSubsystem
 	}
 
-	p := &Prometheus{
+	p := &Metrics{
 		MiddlewareConfig: &config,
 	}
 
 	var err error
 	// Standard default metrics
-	p.reqCnt, err = meter.Int64Counter(
+	p.requests, err = meter.Int64Counter(
 		// the result name is `requests_total`
 		// https://github.com/open-telemetry/opentelemetry-go/blob/46f2ce5ca6adaa264c37cdbba251c9184a06ed7f/exporters/prometheus/exporter.go#L74
 		// the exporter will enforce the `_total` suffix for counter, so we do not need it here
@@ -192,28 +197,33 @@ func NewPrometheus(config MiddlewareConfig) *Prometheus {
 		panic(err)
 	}
 
-	p.reqDur, err = meter.Float64Histogram(
-		"request_duration",
+	p.activeRequests, err = meter.Int64UpDownCounter(
+		MetricHTTPServerActiveRequests,
+		metric.WithDescription("Number of active HTTP server requests."),
+	)
+
+	p.reqDuration, err = meter.Float64Histogram(
+		"http.server.request.duration",
 		metric.WithUnit("s"),
-		metric.WithDescription("The HTTP request latencies in seconds."),
+		metric.WithDescription("Duration of HTTP server requests in seconds."),
 	)
 	if err != nil {
 		panic(err)
 	}
 
-	p.resSz, err = meter.Int64Histogram(
-		"response_size",
+	p.reqSize, err = meter.Int64Histogram(
+		MetricHTTPServerRequestBodySize,
 		metric.WithUnit(unitBytes),
-		metric.WithDescription("The HTTP response sizes in bytes."),
+		metric.WithDescription("Size of HTTP server request bodies."),
 	)
 	if err != nil {
 		panic(err)
 	}
 
-	p.reqSz, err = meter.Int64Histogram(
-		"request_size",
+	p.resSize, err = meter.Int64Histogram(
+		MetricHTTPServerResponseBodySize,
 		metric.WithUnit(unitBytes),
-		metric.WithDescription("The HTTP request sizes in bytes."),
+		metric.WithDescription("Size of HTTP server response bodies."),
 	)
 	if err != nil {
 		panic(err)
@@ -224,18 +234,18 @@ func NewPrometheus(config MiddlewareConfig) *Prometheus {
 }
 
 // SetMetricsExporterRoute set metrics paths
-func (p *Prometheus) SetMetricsExporterRoute(e *echo.Echo) {
+func (p *Metrics) SetMetricsExporterRoute(e *echo.Echo) {
 	e.GET(p.MetricsPath, p.ExporterHandler())
 }
 
 // Setup adds the middleware to the Echo engine.
-func (p *Prometheus) Setup(e *echo.Echo) {
+func (p *Metrics) Setup(e *echo.Echo) {
 	e.Use(p.HandlerFunc)
 	p.SetMetricsExporterRoute(e)
 }
 
 // HandlerFunc defines handler function for middleware
-func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
+func (p *Metrics) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		if c.Path() == p.MetricsPath {
 			return next(c)
@@ -246,10 +256,15 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 
 		start := time.Now()
 		reqSz := computeApproximateRequestSize(c.Request())
+		host := p.RequestCounterHostLabelMappingFunc(c)
+
+		p.activeRequests.Add(c.Request().Context(), 1,
+			metric.WithAttributes(HttpRequestMethod.String(c.Request().Method), ServerAddress.String(host), URLScheme.String(c.Scheme())))
 
 		err := next(c)
 
 		status := c.Response().Status
+
 		if err != nil {
 			var httpError *echo.HTTPError
 			if errors.As(err, &httpError) {
@@ -261,45 +276,48 @@ func (p *Prometheus) HandlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 
 		elapsed := time.Since(start) / time.Millisecond
-
 		url := p.RequestCounterURLLabelMappingFunc(c)
-		host := p.RequestCounterHostLabelMappingFunc(c)
 
 		elapsedSeconds := float64(elapsed) / float64(1000)
-		p.reqDur.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(
-			attribute.Int("code", status),
-			attribute.String("method", c.Request().Method),
-			attribute.String("host", host),
-			attribute.String("url", url)))
+		p.reqDuration.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(
+			URLScheme.String(c.Scheme()),
+			HttpResponseStatusCode.Int(status),
+			HttpRequestMethod.String(c.Request().Method),
+			ServerAddress.String(host),
+			HttpRoute.String(url)))
 
-		// "code", "method", "host", "url"
-		p.reqCnt.Add(c.Request().Context(), 1,
+		p.requests.Add(c.Request().Context(), 1,
 			metric.WithAttributes(
-				attribute.Int("code", status),
-				attribute.String("method", c.Request().Method),
-				attribute.String("host", host),
-				attribute.String("url", url)))
+				URLScheme.String(c.Scheme()),
+				HttpResponseStatusCode.Int(status),
+				HttpRequestMethod.String(c.Request().Method),
+				ServerAddress.String(host),
+				HttpRoute.String(url)))
 
-		p.reqSz.Record(c.Request().Context(), int64(reqSz),
+		p.reqSize.Record(c.Request().Context(), int64(reqSz),
 			metric.WithAttributes(
-				attribute.Int("code", status),
-				attribute.String("method", c.Request().Method),
-				attribute.String("host", host),
-				attribute.String("url", url)))
+				URLScheme.String(c.Scheme()),
+				HttpResponseStatusCode.Int(status),
+				HttpRequestMethod.String(c.Request().Method),
+				ServerAddress.String(host),
+				HttpRoute.String(url)))
 
 		resSz := float64(c.Response().Size)
-		p.resSz.Record(c.Request().Context(), int64(resSz),
+		p.resSize.Record(c.Request().Context(), int64(resSz),
 			metric.WithAttributes(
-				attribute.Int("code", status),
-				attribute.String("method", c.Request().Method),
-				attribute.String("host", host),
-				attribute.String("url", url)))
+				URLScheme.String(c.Scheme()),
+				HttpResponseStatusCode.Int(status),
+				HttpRequestMethod.String(c.Request().Method),
+				ServerAddress.String(host),
+				HttpRoute.String(url)))
 
+		p.activeRequests.Add(c.Request().Context(), -1,
+			metric.WithAttributes(HttpRequestMethod.String(c.Request().Method), ServerAddress.String(host), URLScheme.String(c.Scheme())))
 		return err
 	}
 }
 
-func (p *Prometheus) initMetricsMeterProvider() *prometheus.Exporter {
+func (p *Metrics) initMetricsMeterProvider() *prometheus.Exporter {
 	namespace := p.Namespace
 	if namespace == "" {
 		namespace = p.ServiceName
@@ -337,21 +355,28 @@ func (p *Prometheus) initMetricsMeterProvider() *prometheus.Exporter {
 		// processing_time_seconds
 		// latency_seconds
 		// server_handling_seconds
-		sdkmetric.Instrument{Name: "*request_duration"},
+		sdkmetric.Instrument{Name: "*request.duration"},
 		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 			Boundaries: reqDurBucketsSeconds,
 		}},
 	)
 
-	reqBytesBucketsView := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "*request_size"},
+	execBucketsView := sdkmetric.NewView(
+		sdkmetric.Instrument{Name: "*exec.cost"},
 		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-			Boundaries: byteBuckets,
+			Boundaries: reqDurBucketsSeconds,
 		}},
 	)
 
-	rspBytesBucketsView := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "*response_size"},
+	longExecBucketsView := sdkmetric.NewView(
+		sdkmetric.Instrument{Name: "*long_exec.cost"},
+		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+			Boundaries: longExecBucketsSeconds,
+		}},
+	)
+
+	bytesBucketsView := sdkmetric.NewView(
+		sdkmetric.Instrument{Name: "*body.size"},
 		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 			Boundaries: byteBuckets,
 		}},
@@ -364,7 +389,7 @@ func (p *Prometheus) initMetricsMeterProvider() *prometheus.Exporter {
 		sdkmetric.WithResource(res),
 		// view see https://github.com/open-telemetry/opentelemetry-go/blob/v1.11.2/exporters/prometheus/exporter_test.go#L291
 		sdkmetric.WithReader(exporter),
-		sdkmetric.WithView(durationBucketsView, reqBytesBucketsView, rspBytesBucketsView, defaultView),
+		sdkmetric.WithView(longExecBucketsView, execBucketsView, durationBucketsView, bytesBucketsView, defaultView),
 	)
 
 	otel.SetMeterProvider(provider)
@@ -372,7 +397,7 @@ func (p *Prometheus) initMetricsMeterProvider() *prometheus.Exporter {
 	return exporter
 }
 
-func (p *Prometheus) ExporterHandler() echo.HandlerFunc {
+func (p *Metrics) ExporterHandler() echo.HandlerFunc {
 	h := promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
 
 	return func(c echo.Context) error {
