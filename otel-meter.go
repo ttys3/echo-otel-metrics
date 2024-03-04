@@ -30,6 +30,10 @@ var (
 )
 
 const (
+	defaultSubsystem = "echo"
+)
+
+const (
 	_           = iota // ignore first value by assigning to blank identifier
 	_KB float64 = 1 << (10 * iota)
 	_MB
@@ -149,6 +153,10 @@ func NewPrometheus(config MiddlewareConfig) *Prometheus {
 		config.RequestCounterHostLabelMappingFunc = func(c echo.Context) string {
 			return c.Request().Host
 		}
+	}
+
+	if config.Namespace == "" {
+		config.Namespace = defaultSubsystem
 	}
 
 	p := &Prometheus{

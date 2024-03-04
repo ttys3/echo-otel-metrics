@@ -43,13 +43,13 @@ func TestNonCompModeCustomRegistryMetricsDoNotRecord404Route(t *testing.T) {
 
 	s, code := requestBody(e, "/metrics")
 	assert.Equal(t, http.StatusOK, code)
-	assert.Contains(t, s, `echo_request_duration_milliseconds_count{code="404",host="example.com",method="GET",otel_scope_name="echo",otel_scope_version="",url=""} 1`)
+	assert.Contains(t, s, `echo_request_duration_seconds_count{code="404",host="example.com",method="GET",otel_scope_name="echo",otel_scope_version="",url=""} 1`)
 }
 
 func TestDefaultRegistryMetrics(t *testing.T) {
 	e := echo.New()
 
-	prom := NewPrometheus(MiddlewareConfig{ServiceName: "myapp"})
+	prom := NewPrometheus(MiddlewareConfig{Namespace: "myapp"})
 	e.Use(prom.HandlerFunc)
 	e.GET("/metrics", prom.ExporterHandler())
 
@@ -120,8 +120,8 @@ func TestMetricsForErrors(t *testing.T) {
 	e := echo.New()
 	customRegistry := prometheus.NewRegistry()
 	prom := NewPrometheus(MiddlewareConfig{
-		ServiceName: "myapp",
-		Registry:    customRegistry,
+		Namespace: "myapp",
+		Registry:  customRegistry,
 		Skipper: func(c echo.Context) bool {
 			hasSuffix := strings.HasSuffix(c.Path(), "ignore")
 			return hasSuffix
@@ -197,8 +197,8 @@ func unregisterDefaults(subsystem string) {
 	})
 	unRegisterCollector(prometheus.Opts{
 		Subsystem: subsystem,
-		Name:      "request_duration_milliseconds",
-		Help:      "The HTTP request latencies in milliseconds.",
+		Name:      "request_duration_seconds",
+		Help:      "The HTTP request latencies in seconds.",
 	})
 	unRegisterCollector(prometheus.Opts{
 		Subsystem: subsystem,
