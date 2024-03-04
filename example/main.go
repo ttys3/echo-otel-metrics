@@ -17,6 +17,20 @@ import (
 
 var serviceName = "otelmetric-demo"
 
+var durationArray = []time.Duration{
+	time.Millisecond * time.Duration(rand.Int63n(4)),
+	time.Millisecond * time.Duration(rand.Int63n(8)),
+	time.Millisecond * time.Duration(rand.Int63n(20)),
+	time.Millisecond * time.Duration(rand.Int63n(60)),
+	time.Millisecond * time.Duration(rand.Int63n(80)),
+	time.Millisecond * time.Duration(rand.Int63n(200)),
+	time.Millisecond * time.Duration(rand.Int63n(400)),
+	time.Millisecond * time.Duration(rand.Int63n(600)),
+	time.Millisecond * time.Duration(rand.Int63n(800)),
+	time.Millisecond * time.Duration(rand.Int63n(1200)),
+	time.Millisecond * time.Duration(rand.Int63n(2600)),
+}
+
 func main() {
 	rand.Seed(time.Now().UnixNano())
 	// Echo instance
@@ -35,8 +49,8 @@ func main() {
 		demoCounter.Add(c.Request().Context(), 1, metric.WithAttributes(attribute.String("foo", "bar")))
 		demoCounter.Add(c.Request().Context(), 10, metric.WithAttributes(attribute.String("hello", "world")))
 		demoCounter.Add(c.Request().Context(), 2, metric.WithAttributes(attribute.String("foo", "bar"), attribute.String("hello", "world")))
-		time.Sleep(time.Millisecond * time.Duration(rand.Int63n(510)))
-		return c.String(http.StatusOK, strings.Repeat("Hello, World!\n", rand.Intn(1024*500)/len("Hello, World!\n")))
+		time.Sleep(durationArray[rand.Int63n(int64(len(durationArray)-1))])
+		return c.String(http.StatusOK, strings.Repeat("Hello, World!\n", rand.Intn(1024*5)/len("Hello, World!\n")))
 	})
 
 	// Start server
