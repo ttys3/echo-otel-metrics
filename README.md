@@ -135,3 +135,9 @@ semconv
 
 https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/resource/semantic_conventions/README.md#document-conventions
 https://github.com/open-telemetry/opentelemetry-go/blob/main/semconv/v1.12.0/resource.go
+
+http server
+
+https://opentelemetry.io/docs/specs/semconv/attributes-registry/server/
+
+https://opentelemetry.io/docs/specs/semconv/http/http-metrics/

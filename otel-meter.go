@@ -4,7 +4,9 @@ package echootelmetrics
 import (
 	"errors"
 	"go.opentelemetry.io/otel/attribute"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,7 +91,7 @@ type MiddlewareConfig struct {
 	MetricsPath string
 
 	RequestCounterURLLabelMappingFunc  RequestCounterLabelMappingFunc
-	RequestCounterHostLabelMappingFunc RequestCounterLabelMappingFunc
+	RequestCounterHostLabelMappingFunc func(c echo.Context) (string, int)
 
 	// if enabled, it will add the scope information (otel_scope_name="otelmetric-demo",otel_scope_version="") to every metrics
 	WithScopeInfo bool
@@ -152,8 +154,16 @@ func New(config MiddlewareConfig) *Metrics {
 	}
 
 	if config.RequestCounterHostLabelMappingFunc == nil {
-		config.RequestCounterHostLabelMappingFunc = func(c echo.Context) string {
-			return c.Request().Host
+		config.RequestCounterHostLabelMappingFunc = func(c echo.Context) (string, int) {
+			if c.Request().Host == "" {
+				return "", 0
+			}
+			host, port, err := net.SplitHostPort(c.Request().Host)
+			if err != nil {
+				return c.Request().Host, 0
+			}
+			portInt, _ := strconv.Atoi(port)
+			return host, portInt
 		}
 	}
 
@@ -242,7 +252,7 @@ func (p *Metrics) handlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 
 		start := time.Now()
 		reqSz := computeApproximateRequestSize(c.Request())
-		host := p.RequestCounterHostLabelMappingFunc(c)
+		host, port := p.RequestCounterHostLabelMappingFunc(c)
 
 		p.activeRequests.Add(c.Request().Context(), 1,
 			metric.WithAttributes(HttpRequestMethod.String(c.Request().Method), ServerAddress.String(host), URLScheme.String(c.Scheme())))
@@ -270,8 +280,14 @@ func (p *Metrics) handlerFunc(next echo.HandlerFunc) echo.HandlerFunc {
 			URLScheme.String(c.Scheme()),
 			HttpResponseStatusCode.Int(status),
 			HttpRequestMethod.String(c.Request().Method),
-			ServerAddress.String(host),
 			HttpRoute.String(url),
+		}
+
+		if host != "" {
+			commonAttributes = append(commonAttributes, ServerAddress.String(host))
+		}
+		if port != 0 {
+			commonAttributes = append(commonAttributes, ServerPort.Int(port))
 		}
 
 		p.reqDuration.Record(c.Request().Context(), elapsedSeconds, metric.WithAttributes(commonAttributes...))
