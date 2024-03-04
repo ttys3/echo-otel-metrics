@@ -306,7 +306,7 @@ func (p *Prometheus) initMetricsMeterProvider() *prometheus.Exporter {
 		resource.NewSchemaless(
 			semconv.ServiceName(p.ServiceName),
 			semconv.ServiceVersion(p.ServiceVersion),
-			semconv.ServiceNamespace(p.Namespace),
+			semconv.ServiceNamespace(namespace),
 		))
 	if err != nil {
 		panic(err)
