@@ -2,8 +2,6 @@ module github.com/ttys3/echo-otel-metrics
 
 go 1.21
 
-toolchain go1.22.0
-
 require (
 	github.com/labstack/echo/v4 v4.11.4
 	github.com/prometheus/client_golang v1.19.0
