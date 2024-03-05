@@ -27,7 +27,7 @@ func TestCompModeCustomRegistryMetricsDoNotRecord404Route(t *testing.T) {
 
 	s, code := requestBody(e, "/metrics")
 	assert.Equal(t, http.StatusOK, code)
-	assert.Contains(t, s, `http_server_request_duration_seconds_count{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http"} 1`)
+	assert.Contains(t, s, `http_server_request_duration_seconds_count{http_request_method="GET",http_response_status_code="404",http_route="",url_scheme="http"} 1`)
 }
 
 func TestDefaultRegistryMetrics(t *testing.T) {
@@ -41,7 +41,7 @@ func TestDefaultRegistryMetrics(t *testing.T) {
 
 	s, code := requestBody(e, "/metrics")
 	assert.Equal(t, http.StatusOK, code)
-	assert.Contains(t, s, `myapp_http_server_request_duration_seconds_count{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http"} 1`)
+	assert.Contains(t, s, `myapp_http_server_request_duration_seconds_count{http_request_method="GET",http_response_status_code="404",http_route="",url_scheme="http"} 1`)
 	unregisterDefaults("myapp")
 }
 
@@ -58,12 +58,12 @@ func TestPrometheus_Buckets(t *testing.T) {
 
 	body, code := requestBody(e, "/metrics")
 	assert.Equal(t, http.StatusOK, code)
-	assert.Contains(t, body, `http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http",le="0.005"}`, "duration should have time bucket (like, 0.005s)")
-	assert.NotContains(t, body, `http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http",le="512000"}`, "duration should NOT have a size bucket (like, 512K)")
-	assert.Contains(t, body, `http_server_request_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http",le="10240"}`, "request size should have a 1024k (size) bucket")
-	assert.NotContains(t, body, `http_server_request_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http",le="0.005"}`, "request size should NOT have time bucket (like, 0.005s)")
-	assert.Contains(t, body, `http_server_response_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http",le="10240"}`, "response size should have a 1024k (size) bucket")
-	assert.NotContains(t, body, `echo_response_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http",le="0.005"}`, "response size should NOT have time bucket (like, 0.005s)")
+	assert.Contains(t, body, `http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="404",http_route="",url_scheme="http",le="0.005"}`, "duration should have time bucket (like, 0.005s)")
+	assert.NotContains(t, body, `http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="404",http_route="",url_scheme="http",le="512000"}`, "duration should NOT have a size bucket (like, 512K)")
+	assert.Contains(t, body, `http_server_request_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="404",http_route="",url_scheme="http",le="10240"}`, "request size should have a 1024k (size) bucket")
+	assert.NotContains(t, body, `http_server_request_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="404",http_route="",url_scheme="http",le="0.005"}`, "request size should NOT have time bucket (like, 0.005s)")
+	assert.Contains(t, body, `http_server_response_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="404",http_route="",url_scheme="http",le="10240"}`, "response size should have a 1024k (size) bucket")
+	assert.NotContains(t, body, `echo_response_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="404",http_route="",url_scheme="http",le="0.005"}`, "response size should NOT have time bucket (like, 0.005s)")
 }
 
 func TestMiddlewareConfig_Skipper(t *testing.T) {
@@ -96,9 +96,9 @@ func TestMiddlewareConfig_Skipper(t *testing.T) {
 	assert.Equal(t, http.StatusOK, code)
 
 	// 200 1
-	assert.Contains(t, body, `http_server_request_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="200",http_route="/test",server_address="example.com",url_scheme="http",le="1024"} 1`)
+	assert.Contains(t, body, `http_server_request_body_size_bytes_bucket{http_request_method="GET",http_response_status_code="200",http_route="/test",url_scheme="http",le="1024"} 1`)
 	// 404 1
-	assert.Contains(t, body, `http_server_request_body_size_bytes_count{http_request_method="GET",http_response_status_code="404",http_route="",server_address="example.com",url_scheme="http"} 1`)
+	assert.Contains(t, body, `http_server_request_body_size_bytes_count{http_request_method="GET",http_response_status_code="404",http_route="",url_scheme="http"} 1`)
 	assert.NotContains(t, body, `test_ignore`) // because we skipped
 }
 
@@ -134,9 +134,9 @@ func TestMetricsForErrors(t *testing.T) {
 	body, code := requestBody(e, "/metrics")
 	assert.Equal(t, http.StatusOK, code)
 	assert.Contains(t, body, fmt.Sprintf("%s_requests_total", "myapp"))
-	assert.Contains(t, body, `myapp_requests_total{http_request_method="GET",http_response_status_code="200",http_route="/handler_for_ok",server_address="example.com",url_scheme="http"} 1`)
-	assert.Contains(t, body, `myapp_requests_total{http_request_method="GET",http_response_status_code="409",http_route="/handler_for_nok",server_address="example.com",url_scheme="http"} 2`)
-	assert.Contains(t, body, `myapp_requests_total{http_request_method="GET",http_response_status_code="502",http_route="/handler_for_error",server_address="example.com",url_scheme="http"} 1`)
+	assert.Contains(t, body, `myapp_requests_total{http_request_method="GET",http_response_status_code="200",http_route="/handler_for_ok",url_scheme="http"} 1`)
+	assert.Contains(t, body, `myapp_requests_total{http_request_method="GET",http_response_status_code="409",http_route="/handler_for_nok",url_scheme="http"} 2`)
+	assert.Contains(t, body, `myapp_requests_total{http_request_method="GET",http_response_status_code="502",http_route="/handler_for_error",url_scheme="http"} 1`)
 }
 
 func requestBody(e *echo.Echo, path string) (string, int) {
