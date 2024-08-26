@@ -7,9 +7,9 @@ require (
 	github.com/prometheus/client_golang v1.19.1
 	github.com/prometheus/common v0.55.0
 	github.com/stretchr/testify v1.9.0
-	go.opentelemetry.io/otel v1.28.0
+	go.opentelemetry.io/otel v1.29.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.50.0
-	go.opentelemetry.io/otel/metric v1.28.0
+	go.opentelemetry.io/otel/metric v1.29.0
 	go.opentelemetry.io/otel/sdk v1.28.0
 	go.opentelemetry.io/otel/sdk/metric v1.28.0
 )
@@ -31,7 +31,7 @@ require (
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
-	go.opentelemetry.io/otel/trace v1.28.0 // indirect
+	go.opentelemetry.io/otel/trace v1.29.0 // indirect
 	golang.org/x/crypto v0.24.0 // indirect
 	golang.org/x/net v0.26.0 // indirect
 	golang.org/x/sys v0.21.0 // indirect
