@@ -3,18 +3,20 @@ package echootelmetrics
 
 import (
 	"errors"
-	"go.opentelemetry.io/otel/attribute"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"go.opentelemetry.io/otel"
 
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/exemplar"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 
@@ -43,8 +45,6 @@ const (
 
 // reqDurBucketsSeconds is the buckets for request duration. Here, we use the prometheus defaults
 var reqDurBucketsSeconds = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
-
-var longExecBucketsSeconds = []float64{0.5, 1.0, 1.5, 2.5, 5.0, 10.0, 15.0, 25.0, 40.0, 60, 90, 120, 150, 200, 250, 300}
 
 // byteBuckets is the buckets for request/response size. Here we define a spectrom from 1KB thru 1NB up to 10MB.
 var byteBuckets = []float64{1.0 * _KB, 2.0 * _KB, 5.0 * _KB, 10.0 * _KB, 100 * _KB, 500 * _KB, 1.0 * _MB, 2.5 * _MB, 5.0 * _MB, 10.0 * _MB}
@@ -113,8 +113,6 @@ type Metrics struct {
 	reqDuration metric.Float64Histogram
 	reqSize     metric.Int64Histogram
 	resSize     metric.Int64Histogram
-
-	router *echo.Echo
 
 	*MiddlewareConfig
 }
@@ -196,11 +194,15 @@ func New(config MiddlewareConfig) *Metrics {
 		MetricHTTPServerActiveRequests,
 		metric.WithDescription("Number of active HTTP server requests."),
 	)
+	if err != nil {
+		panic(err)
+	}
 
 	p.reqDuration, err = meter.Float64Histogram(
 		MetricHTTPServerRequestDuration,
 		metric.WithUnit("s"),
 		metric.WithDescription("Duration of HTTP server requests in seconds."),
+		metric.WithExplicitBucketBoundaries(reqDurBucketsSeconds...),
 	)
 	if err != nil {
 		panic(err)
@@ -210,6 +212,7 @@ func New(config MiddlewareConfig) *Metrics {
 		MetricHTTPServerRequestBodySize,
 		metric.WithUnit(unitBytes),
 		metric.WithDescription("Size of HTTP server request bodies."),
+		metric.WithExplicitBucketBoundaries(byteBuckets...),
 	)
 	if err != nil {
 		panic(err)
@@ -219,6 +222,7 @@ func New(config MiddlewareConfig) *Metrics {
 		MetricHTTPServerResponseBodySize,
 		metric.WithUnit(unitBytes),
 		metric.WithDescription("Size of HTTP server response bodies."),
+		metric.WithExplicitBucketBoundaries(byteBuckets...),
 	)
 	if err != nil {
 		panic(err)
@@ -331,47 +335,13 @@ func (p *Metrics) initMetricsMeterProvider() *prometheus.Exporter {
 		panic(err)
 	}
 
-	durationBucketsView := sdkmetric.NewView(
-		// TODO: support more views like:
-		// request_duration_seconds
-		// processing_time_seconds
-		// latency_seconds
-		// server_handling_seconds
-		sdkmetric.Instrument{Name: "*request.duration"},
-		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-			Boundaries: reqDurBucketsSeconds,
-		}},
-	)
-
-	execBucketsView := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "*exec.cost"},
-		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-			Boundaries: reqDurBucketsSeconds,
-		}},
-	)
-
-	longExecBucketsView := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "*long_exec.cost"},
-		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-			Boundaries: longExecBucketsSeconds,
-		}},
-	)
-
-	bytesBucketsView := sdkmetric.NewView(
-		sdkmetric.Instrument{Name: "*body.size"},
-		sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-			Boundaries: byteBuckets,
-		}},
-	)
-
-	defaultView := sdkmetric.NewView(sdkmetric.Instrument{Name: "*", Kind: sdkmetric.InstrumentKindCounter},
-		sdkmetric.Stream{})
-
 	provider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(res),
 		// view see https://github.com/open-telemetry/opentelemetry-go/blob/v1.11.2/exporters/prometheus/exporter_test.go#L291
 		sdkmetric.WithReader(exporter),
-		sdkmetric.WithView(longExecBucketsView, execBucketsView, durationBucketsView, bytesBucketsView, defaultView),
+		// disable exemplar https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.32.0
+		// which cause problem with prometheus exporter for gauge type
+		sdkmetric.WithExemplarFilter(exemplar.AlwaysOffFilter),
 	)
 
 	otel.SetMeterProvider(provider)
