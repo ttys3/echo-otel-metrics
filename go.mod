@@ -8,7 +8,7 @@ require (
 	github.com/prometheus/common v0.61.0
 	github.com/stretchr/testify v1.10.0
 	go.opentelemetry.io/otel v1.33.0
-	go.opentelemetry.io/otel/exporters/prometheus v0.54.0
+	go.opentelemetry.io/otel/exporters/prometheus v0.55.0
 	go.opentelemetry.io/otel/metric v1.33.0
 	go.opentelemetry.io/otel/sdk v1.33.0
 	go.opentelemetry.io/otel/sdk/metric v1.33.0
